@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+  xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+  xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+  <title>Example Weekly Show (Delayed)</title>
+  <link>https://example.com/show</link>
+  <atom:link href="https://podcasts.example.com/f/tok123.xml" rel="self" type="application/rss+xml"/>
+  <description><![CDATA[A test podcast feed used for PodcastDelay's golden tests.]]></description>
+  <language>en-us</language>
+  <lastBuildDate>Mon, 05 Jan 2026 07:00:00 +0000</lastBuildDate>
+  <generator>PodcastDelay</generator>
+  <itunes:author>Example Media</itunes:author>
+  <itunes:explicit>no</itunes:explicit>
+  <itunes:type>episodic</itunes:type>
+  <itunes:image href="https://example.com/art.jpg"/>
+  <image>
+    <url>https://example.com/art.jpg</url>
+    <title>Example Weekly Show (Delayed)</title>
+    <link>https://example.com/show</link>
+  </image>
+  <itunes:owner>
+    <itunes:name>Example Media</itunes:name>
+    <itunes:email>hello@example.com</itunes:email>
+  </itunes:owner>
+  <itunes:category text="Technology"/>
+  <item>
+    <title>Episode 1: The Beginning</title>
+    <link>https://example.com/show/1</link>
+    <guid isPermaLink="false">podcastdelay:tok123:ep-1</guid>
+    <pubDate>Mon, 05 Jan 2026 07:00:00 +0000</pubDate>
+    <description><![CDATA[Where it all started.
+
+Originally published 2 March 2020.]]></description>
+    <enclosure url="https://chtbl.com/track/EXAMPLE/cdn.example.com/1.mp3" type="audio/mpeg" length="1000000"/>
+    <itunes:duration>00:30:00</itunes:duration>
+    <itunes:episode>1</itunes:episode>
+    <itunes:season>1</itunes:season>
+    <itunes:episodeType>full</itunes:episodeType>
+    <itunes:explicit>no</itunes:explicit>
+  </item>
+</channel>
+</rss>
