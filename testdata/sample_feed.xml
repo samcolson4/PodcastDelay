@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>Example Weekly Show</title>
+  <description>A test podcast feed used for PodcastDelay's golden tests.</description>
+  <link>https://example.com/show</link>
+  <language>en-us</language>
+  <itunes:author>Example Media</itunes:author>
+  <itunes:explicit>no</itunes:explicit>
+  <itunes:type>episodic</itunes:type>
+  <itunes:image href="https://example.com/art.jpg"/>
+  <itunes:owner>
+    <itunes:name>Example Media</itunes:name>
+    <itunes:email>hello@example.com</itunes:email>
+  </itunes:owner>
+  <itunes:category text="Technology"/>
+
+  <item>
+    <title>Episode 1: The Beginning</title>
+    <description>Where it all started.</description>
+    <link>https://example.com/show/1</link>
+    <guid isPermaLink="false">ep-1</guid>
+    <pubDate>Mon, 02 Mar 2020 08:00:00 GMT</pubDate>
+    <enclosure url="https://chtbl.com/track/EXAMPLE/cdn.example.com/1.mp3" length="1000000" type="audio/mpeg"/>
+    <itunes:duration>00:30:00</itunes:duration>
+    <itunes:episode>1</itunes:episode>
+    <itunes:season>1</itunes:season>
+    <itunes:episodeType>full</itunes:episodeType>
+    <itunes:explicit>no</itunes:explicit>
+  </item>
+
+  <item>
+    <title>Episode 2: Trailer</title>
+    <description>Coming soon.</description>
+    <link>https://example.com/show/trailer</link>
+    <guid isPermaLink="false">ep-trailer</guid>
+    <pubDate>Sun, 01 Mar 2020 08:00:00 GMT</pubDate>
+    <enclosure url="https://chtbl.com/track/EXAMPLE/cdn.example.com/trailer.mp3" length="500000" type="audio/mpeg"/>
+    <itunes:duration>00:02:00</itunes:duration>
+    <itunes:episodeType>trailer</itunes:episodeType>
+  </item>
+
+  <item>
+    <title>Episode 2: The Middle</title>
+    <description>Things develop.</description>
+    <link>https://example.com/show/2</link>
+    <guid isPermaLink="false">ep-2</guid>
+    <pubDate>Mon, 09 Mar 2020 08:00:00 GMT</pubDate>
+    <enclosure url="https://chtbl.com/track/EXAMPLE/cdn.example.com/2.mp3" length="1100000" type="audio/mpeg"/>
+    <itunes:duration>00:32:00</itunes:duration>
+    <itunes:episode>2</itunes:episode>
+    <itunes:season>1</itunes:season>
+    <itunes:episodeType>full</itunes:episodeType>
+  </item>
+
+  <item>
+    <title>Episode 2: The Middle</title>
+    <description>Duplicate GUID, should be ignored (first wins).</description>
+    <link>https://example.com/show/2-dupe</link>
+    <guid isPermaLink="false">ep-2</guid>
+    <pubDate>Tue, 10 Mar 2020 08:00:00 GMT</pubDate>
+    <enclosure url="https://chtbl.com/track/EXAMPLE/cdn.example.com/2-dupe.mp3" length="1100000" type="audio/mpeg"/>
+  </item>
+
+  <item>
+    <title>Show notes only, no audio</title>
+    <description>A text-only post with no enclosure.</description>
+    <link>https://example.com/show/notes</link>
+    <guid isPermaLink="false">ep-notes</guid>
+    <pubDate>Wed, 11 Mar 2020 08:00:00 GMT</pubDate>
+  </item>
+</channel>
+</rss>
