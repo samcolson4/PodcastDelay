@@ -18,6 +18,7 @@ arriving weekly, from the beginning, today.
 | Timing | **Fixed cadence you choose** (e.g. one episode every 7 days). |
 | Audio | **Pass through the publisher's original enclosure URLs.** No proxying, no re-hosting. |
 | Stack | **Go** — single static binary + SQLite. |
+| Packaging | **Container image**, multi-arch, env-var config, one volume. |
 
 Consequences worth naming up front:
 
@@ -255,6 +256,9 @@ internal/feed/                # RSS rendering (text/template)
 internal/web/                 # handlers, admin templates
 internal/refresh/             # background poller
 testdata/                     # real-world feed samples + golden output
+Dockerfile                    # multi-stage, CGO_ENABLED=0, distroless final
+compose.yaml                  # reference deployment (see 9.3)
+.github/workflows/release.yml # buildx multi-arch image -> ghcr.io
 ```
 
 `internal/schedule` being pure and I/O-free is deliberate: it's where all the
@@ -313,28 +317,165 @@ conditional GETs and backoff. Multiple subscriptions.
 **M3 — Admin UI + CLI.** Add/edit/pause/delete, schedule preview, progress
 display. This is when the project stops needing a redeploy to add a show.
 
-**M4 — Deploy + polish.** Container image, backups, ETag/304 on the feed,
-structured logging, a `/healthz` you can point an uptime checker at.
+**M4 — Package + deploy.** Multi-arch container image and compose file (§9),
+env-var config, embedded migrations run on start, backups, ETag/304 on the
+feed, structured logging, and a `/healthz` plus `healthcheck` subcommand.
 
 ---
 
-## 9. Deployment
+## 9. Deployment and self-hosting
 
-A single static binary and a SQLite file. Options, cheapest first:
+**Packaged as a container.** One image, one volume, one port. That's the whole
+operational surface, and it's what makes this runnable on anything from a
+Raspberry Pi to a €4 VPS without changing how it's configured.
 
-- **Fly.io** — one shared-cpu-1x machine with a small persistent volume, TLS and
-  a hostname included. Note that a scale-to-zero machine still wakes on the
-  first poll from your podcast app, so cold starts are harmless here.
-- **Any €4/mo VPS** (Hetzner, etc.) with Caddy in front for automatic TLS.
-- **A Raspberry Pi at home** would work too, but your podcast app needs the feed
-  reachable from outside the house, and a feed that 404s for a week is how you
-  silently lose episodes. Prefer something hosted.
+### 9.1 The image
 
-Backups: the SQLite file is the entire state and it is tiny. `sqlite3 .backup`
-on a daily cron to object storage, or just `litestream`. Worth doing — losing it
-means losing your position in every show.
+Multi-stage build: a `golang` builder stage, then a `scratch` or
+`gcr.io/distroless/static` final stage. Because the only non-stdlib pieces are
+`gofeed` and `modernc.org/sqlite` (pure Go, no cgo), the binary builds with
+`CGO_ENABLED=0` and is fully static. Expect roughly 15–20 MB total.
 
-Cost: XML only, a handful of kilobytes per poll. Effectively free.
+Two things a `scratch` image will otherwise be missing, both of which this app
+genuinely needs:
+
+- **CA certificates**, for fetching source feeds over HTTPS. Copy
+  `/etc/ssl/certs/ca-certificates.crt` from the builder stage.
+- **Timezone data.** The DST-safe scheduling in §3.6 calls `time.LoadLocation`,
+  which fails on an empty filesystem and would silently break wall-clock release
+  times. The clean fix is a blank import of `time/tzdata` in `main.go`, which
+  embeds the IANA database into the binary for about 450 KB. Prefer that over
+  mounting the host's zoneinfo — it keeps the image self-contained and makes the
+  behaviour identical everywhere.
+
+Build **multi-arch** (`linux/amd64` and `linux/arm64`) with `docker buildx`.
+The arm64 target isn't optional if anyone might run this on a Pi or a Synology
+or a modern Mac — which, for a home-server app, is most people.
+
+Run as a non-root user with a read-only root filesystem; only the data volume
+needs to be writable.
+
+### 9.2 Configuration
+
+Everything through environment variables, so the image needs no rebuild and no
+config file baked in:
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `PODCASTDELAY_DATA_DIR` | `/data` | SQLite file lives here. The only writable path. |
+| `PODCASTDELAY_ADDR` | `:8080` | Listen address. |
+| `PODCASTDELAY_BASE_URL` | — | **Required.** Public URL of the instance. Feeds need an absolute `atom:link rel="self"`, and relative URLs will break in some apps. |
+| `PODCASTDELAY_ADMIN_USER` | — | **Required.** |
+| `PODCASTDELAY_ADMIN_PASSWORD` | — | **Required.** Refuse to start if unset — never ship a default credential on something that ends up on the open internet. |
+| `PODCASTDELAY_DEFAULT_TIMEZONE` | `UTC` | Default for new subscriptions; per-subscription value still wins. |
+| `PODCASTDELAY_POLL_INTERVAL` | `6h` | Floor is enforced in code regardless of what's set here. |
+| `PODCASTDELAY_LOG_LEVEL` | `info` | |
+
+### 9.3 Compose
+
+```yaml
+services:
+  podcastdelay:
+    image: ghcr.io/samcolson4/podcastdelay:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - podcastdelay-data:/data
+    environment:
+      PODCASTDELAY_BASE_URL: https://podcasts.example.com
+      PODCASTDELAY_ADMIN_USER: sam
+      PODCASTDELAY_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      PODCASTDELAY_DEFAULT_TIMEZONE: Europe/London
+    secrets:
+      - admin_password
+    healthcheck:
+      test: ["CMD", "/podcastdelay", "healthcheck"]
+      interval: 60s
+
+volumes:
+  podcastdelay-data:
+
+secrets:
+  admin_password:
+    file: ./admin_password.txt
+```
+
+Supporting a `_FILE` suffix on the password (read the secret from a file rather
+than the environment) is a small convention that self-hosters expect and costs
+about ten lines. The healthcheck invokes the binary itself rather than curl,
+since a distroless image has no shell or HTTP client.
+
+### 9.4 Reachability is the real constraint, not compute
+
+The resource footprint is trivial — parsing some XML every six hours and
+serving a few kilobytes on request, idling around 20–30 MB of RAM. Nothing here
+strains a Pi. The actual friction is that **your podcast app needs to reach the
+feed from a phone on mobile data.** Options, roughly in order of effort:
+
+- **Cloudflare Tunnel** — no port forwarding, no dynamic DNS, TLS handled, free.
+  The lowest-effort path for a box behind a home router, and the one to
+  recommend in the README.
+- **Tailscale** — clean and private, but your phone has to be on the tailnet for
+  the podcast app's background refresh to succeed. Fine if you already run it;
+  a bit fragile as the only access path.
+- **Dynamic DNS + a reverse proxy** (Caddy for automatic certificates) — the
+  traditional route, worth it if you already have that furniture.
+- **Skip the house entirely** and run the same image on a small VPS or Fly.io.
+
+Serve over TLS regardless of route. iOS App Transport Security makes plain HTTP
+enclosure and feed URLs an unnecessary fight.
+
+### 9.5 Downtime tolerance is higher than it looks
+
+This matters because it's the main argument against hosting at home, and the
+argument is weaker than it appears. (An earlier draft of this doc claimed a
+feed that 404s for a week is "how you silently lose episodes" — that was
+wrong.)
+
+Release times are computed and locked server-side (§2, §3.3), so an outage
+**does not consume your schedule**. When the box comes back, every episode that
+released during the gap is sitting in the feed waiting. You lose timeliness,
+not episodes.
+
+The residual risk is milder: some apps only auto-download the newest few items,
+so after a long outage you may have to tap download on a backlog manually. Worth
+knowing, not worth architecting against.
+
+### 9.6 Backups
+
+The SQLite file is the entire state — subscriptions, positions, and which
+episodes have already been released. It is small and it is irreplaceable:
+restoring from nothing means every show restarts from episode 1.
+
+- `litestream` for continuous replication to object storage, or
+- a daily `sqlite3 .backup` to the same, or
+- a volume snapshot if the host provides one.
+
+Any of the three is fine. Having none is the actual mistake.
+
+### 9.7 If it's packaged for other people
+
+The single-user decision (§1) is not an obstacle to distribution — self-hosters
+run their own instance, so one user per deployment is the native model for that
+ecosystem. Beyond what's already above, shipping it to others needs:
+
+- Versioned image tags (`:1.2.3`, `:1`, `:latest`), not just `latest`
+- An example `compose.yaml` and a README covering reverse proxy and backups
+- Embedded migrations that run automatically on start, so upgrades are just
+  pulling a new tag
+- No hardcoded paths, no assumption of a writable working directory
+- A `healthcheck` subcommand, which Unraid/CasaOS/TrueNAS-style app catalogues
+  and orchestrators both want
+
+On the legal side, distributing the software is a materially different
+proposition from running a hosted service: each operator chooses the feeds
+themselves, and the pass-through design (§1) means nobody is redistributing
+audio. That's a far more comfortable position than multi-tenant hosting, and
+another reason to stay out of that business.
+
+Cost, whichever way it's hosted: XML only, a few kilobytes per poll.
+Effectively free.
 
 ---
 
