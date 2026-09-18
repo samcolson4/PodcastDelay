@@ -1,0 +1,4 @@
+.git
+*.md
+compose.yaml
+admin_password.txt

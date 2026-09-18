@@ -1,0 +1,25 @@
+services:
+  podcastdelay:
+    image: ghcr.io/samcolson4/podcastdelay:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - podcastdelay-data:/data
+    environment:
+      PODCASTDELAY_BASE_URL: https://podcasts.example.com
+      PODCASTDELAY_ADMIN_USER: sam
+      PODCASTDELAY_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      PODCASTDELAY_DEFAULT_TIMEZONE: Europe/London
+    secrets:
+      - admin_password
+    healthcheck:
+      test: ["CMD", "/podcastdelay", "healthcheck"]
+      interval: 60s
+
+volumes:
+  podcastdelay-data:
+
+secrets:
+  admin_password:
+    file: ./admin_password.txt

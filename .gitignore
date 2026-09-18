@@ -1,0 +1,6 @@
+/podcastdelay
+/data/
+*.db
+*.db-wal
+*.db-shm
+admin_password.txt
