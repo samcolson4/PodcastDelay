@@ -1,0 +1,67 @@
+{{define "schedule.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schedule — PodcastDelay admin</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; line-height: 1.4; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #8884; }
+  th { font-size: 0.8rem; text-transform: uppercase; opacity: 0.7; }
+  .locked { opacity: 0.6; }
+  .excluded { text-decoration: line-through; opacity: 0.5; }
+  form.card { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin-top: 1.5rem; max-width: 500px; }
+  form.card label { display: block; margin-top: 0.6rem; font-size: 0.85rem; }
+  form.card input { width: 100%; padding: 0.35rem; box-sizing: border-box; }
+  .row { display: flex; gap: 1rem; }
+  .row > div { flex: 1; }
+</style>
+</head>
+<body>
+<p><a href="/admin">&larr; back to feeds</a></p>
+<h1>{{.Subscription.SourceURL}}</h1>
+<p class="muted">Every {{.Subscription.CadenceDays}} day(s) at {{.Subscription.ReleaseTime}} ({{.Subscription.Timezone}}), seed {{.Subscription.SeedCount}}, {{.Subscription.EpisodesPerSlot}}/slot.</p>
+
+<table>
+  <thead><tr><th>#</th><th>Title</th><th>Release</th><th>Locked</th><th></th></tr></thead>
+  <tbody>
+  {{range .Episodes}}
+    <tr class="{{if .Excluded}}excluded{{end}}">
+      <td>{{.Position}}</td>
+      <td>{{.Title}}</td>
+      <td>{{fmtTime .Preview}}</td>
+      <td>{{if .Locked}}yes{{else}}no{{end}}</td>
+      <td>
+        {{if .Excluded}}
+        <form method="post" action="/admin/subscriptions/{{$.Subscription.ID}}/episodes/{{.ID}}/include"><button type="submit">Include</button></form>
+        {{else}}
+        <form method="post" action="/admin/subscriptions/{{$.Subscription.ID}}/episodes/{{.ID}}/exclude"><button type="submit">Exclude</button></form>
+        {{end}}
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+
+<h2>Edit schedule</h2>
+<form class="card" method="post" action="/admin/subscriptions/{{.Subscription.ID}}/edit">
+  <div class="row">
+    <div><label>Cadence (days)<input type="number" name="cadence_days" min="1" value="{{.Subscription.CadenceDays}}"></label></div>
+    <div><label>Release time<input type="time" name="release_time" value="{{.Subscription.ReleaseTime}}"></label></div>
+    <div><label>Timezone<input type="text" name="timezone" value="{{.Subscription.Timezone}}"></label></div>
+  </div>
+  <div class="row">
+    <div><label>Start at<input type="datetime-local" name="start_at" value="{{fmtInputTime .Subscription.StartAt}}"></label></div>
+    <div><label>Seed count<input type="number" name="seed_count" min="0" value="{{.Subscription.SeedCount}}"></label></div>
+    <div><label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="{{.Subscription.EpisodesPerSlot}}"></label></div>
+  </div>
+  <p class="muted">Only unlocked (not-yet-released) episodes move when you save.</p>
+  <p><button type="submit">Save &amp; reschedule</button></p>
+</form>
+
+</body>
+</html>
+{{end}}

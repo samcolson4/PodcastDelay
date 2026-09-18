@@ -1,0 +1,106 @@
+{{define "dashboard.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PodcastDelay admin</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; line-height: 1.4; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2.5rem; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #8884; vertical-align: top; }
+  th { font-size: 0.8rem; text-transform: uppercase; opacity: 0.7; }
+  form.inline { display: inline; }
+  form.card { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin-top: 1rem; max-width: 600px; }
+  form.card label { display: block; margin-top: 0.6rem; font-size: 0.85rem; }
+  form.card input { width: 100%; padding: 0.35rem; box-sizing: border-box; }
+  .row { display: flex; gap: 1rem; }
+  .row > div { flex: 1; }
+  button { cursor: pointer; }
+  .muted { opacity: 0.65; font-size: 0.85rem; }
+  .error { color: #c00; margin-top: 1rem; }
+  .feed-url { font-family: ui-monospace, monospace; font-size: 0.8rem; word-break: break-all; }
+  .actions button { margin: 0 0.15rem 0.15rem 0; }
+</style>
+</head>
+<body>
+<h1>PodcastDelay</h1>
+
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+<table>
+  <thead>
+    <tr>
+      <th>Show</th>
+      <th>Progress</th>
+      <th>Next release</th>
+      <th>Feed URL</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Subscriptions}}
+    <tr>
+      <td>
+        <strong>{{.Title}}</strong><br>
+        <span class="muted">{{.SourceURL}}</span><br>
+        <span class="muted">every {{.CadenceDays}}d at {{.ReleaseTime}} ({{.Timezone}}){{if .PausedAt}} — paused{{end}}</span>
+      </td>
+      <td>
+        {{if .IsCaughtUp}}
+          caught up ({{.ReleasedCount}}/{{.TotalEpisodes}})
+        {{else}}
+          ep {{.ReleasedCount}} of {{.TotalEpisodes}}{{if .CaughtUpAt}}<br><span class="muted">caught up {{fmtTimeOrNil .CaughtUpAt}}</span>{{end}}
+        {{end}}
+      </td>
+      <td>{{fmtTimeOrNil .NextReleaseAt}}</td>
+      <td class="feed-url">{{$.BaseURL}}/f/{{.Token}}.xml</td>
+      <td>
+        {{if .LastFetchError}}<span class="muted">{{.LastFetchError}}</span>{{else}}<span class="muted">—</span>{{end}}
+      </td>
+      <td class="actions">
+        <form class="inline" method="post" action="/admin/subscriptions/{{.ID}}/refresh"><button type="submit">Refresh</button></form>
+        {{if .PausedAt}}
+        <form class="inline" method="post" action="/admin/subscriptions/{{.ID}}/resume"><button type="submit">Resume</button></form>
+        {{else}}
+        <form class="inline" method="post" action="/admin/subscriptions/{{.ID}}/pause"><button type="submit">Pause</button></form>
+        {{end}}
+        <a href="/admin/subscriptions/{{.ID}}/schedule"><button type="button">Schedule</button></a>
+        <form class="inline" method="post" action="/admin/subscriptions/{{.ID}}/delete" onsubmit="return confirm('Delete this feed? This cannot be undone.');"><button type="submit">Delete</button></form>
+      </td>
+    </tr>
+  {{else}}
+    <tr><td colspan="6" class="muted">No feeds yet — add one below.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+<h2>Add a feed</h2>
+<form class="card" method="post" action="/admin/subscriptions">
+  <label>Source RSS URL
+    <input type="url" name="source_url" required placeholder="https://example.com/feed.xml">
+  </label>
+  <div class="row">
+    <div><label>Cadence (days)<input type="number" name="cadence_days" min="1" value="7"></label></div>
+    <div><label>Release time<input type="time" name="release_time" value="07:00"></label></div>
+    <div><label>Timezone<input type="text" name="timezone" value="{{.DefaultTimezone}}"></label></div>
+  </div>
+  <div class="row">
+    <div><label>Start at<input type="datetime-local" name="start_at" value="{{fmtInputTime .Now}}"></label></div>
+    <div><label>Seed count<input type="number" name="seed_count" min="0" value="1"></label></div>
+    <div><label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="1"></label></div>
+  </div>
+  <div class="row">
+    <div><label>Title override (optional)<input type="text" name="title_override"></label></div>
+    <div><label>Max feed items (optional)<input type="number" name="max_feed_items" min="1"></label></div>
+  </div>
+  <p><button type="submit">Add feed</button></p>
+</form>
+
+</body>
+</html>
+{{end}}
