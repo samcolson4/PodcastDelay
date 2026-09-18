@@ -1,0 +1,51 @@
+CREATE TABLE subscriptions (
+  id                  INTEGER PRIMARY KEY,
+  token               TEXT NOT NULL UNIQUE,
+  source_url          TEXT NOT NULL,
+  title_override      TEXT,
+  cadence_days        INTEGER NOT NULL,
+  release_time        TEXT NOT NULL DEFAULT '07:00',
+  timezone            TEXT NOT NULL DEFAULT 'Europe/London',
+  start_at            TIMESTAMP NOT NULL,
+  seed_count          INTEGER NOT NULL DEFAULT 1,
+  episodes_per_slot   INTEGER NOT NULL DEFAULT 1,
+  shift_seconds       INTEGER NOT NULL DEFAULT 0,
+  paused_at           TIMESTAMP,
+  max_feed_items      INTEGER,
+  channel_json        TEXT NOT NULL DEFAULT '{}',
+  etag                TEXT,
+  last_modified       TEXT,
+  last_fetched_at     TIMESTAMP,
+  last_fetch_status   TEXT,
+  created_at          TIMESTAMP NOT NULL,
+  updated_at          TIMESTAMP NOT NULL
+);
+
+CREATE TABLE episodes (
+  id                INTEGER PRIMARY KEY,
+  subscription_id   INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+  guid              TEXT NOT NULL,
+  position          INTEGER NOT NULL,
+  scheduled_at      TIMESTAMP NOT NULL,
+  locked            INTEGER NOT NULL DEFAULT 0,
+  excluded          INTEGER NOT NULL DEFAULT 0,
+  original_pub_date TIMESTAMP,
+  title             TEXT NOT NULL,
+  description       TEXT,
+  link              TEXT,
+  enclosure_url     TEXT NOT NULL,
+  enclosure_type    TEXT,
+  enclosure_length  INTEGER,
+  duration          TEXT,
+  episode_number    INTEGER,
+  season            INTEGER,
+  episode_type      TEXT,
+  explicit          INTEGER,
+  image_url         TEXT,
+  first_seen_at     TIMESTAMP NOT NULL,
+  missing_since     TIMESTAMP,
+  UNIQUE (subscription_id, guid),
+  UNIQUE (subscription_id, position)
+);
+
+CREATE INDEX idx_episodes_feed ON episodes (subscription_id, scheduled_at);
