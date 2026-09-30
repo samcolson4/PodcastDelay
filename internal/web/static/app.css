@@ -1,4 +1,18 @@
 /* PodcastDelay admin — small layer on top of Pico. */
+/* Pico's light-theme text is a blue-grey; use true black for text and headings (dark theme untouched). */
+:root[data-theme="light"] {
+  --pico-color: #000;
+  --pico-h1-color: #000; --pico-h2-color: #000; --pico-h3-color: #000;
+  --pico-h4-color: #000; --pico-h5-color: #000; --pico-h6-color: #000;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --pico-color: #000;
+    --pico-h1-color: #000; --pico-h2-color: #000; --pico-h3-color: #000;
+    --pico-h4-color: #000; --pico-h5-color: #000; --pico-h6-color: #000;
+  }
+}
+
 main.container { max-width: 1400px; }
 nav.top { margin-bottom: 1rem; }
 nav.top .brand { display: inline-flex; align-items: center; gap: 0.6rem; font-weight: 700; font-size: 2rem; line-height: 1.1; text-decoration: none; }
