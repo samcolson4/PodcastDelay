@@ -1,6 +1,11 @@
 {{define "schedule.html"}}{{template "header" "Schedule"}}
 <h1>Schedule</h1>
-<p class="muted">Every {{.Subscription.CadenceDays}} day(s) at {{.Subscription.ReleaseTime}} ({{.Subscription.Timezone}}), seed {{.Subscription.SeedCount}}, {{.Subscription.EpisodesPerSlot}}/slot.</p>
+<p class="muted">
+  {{with .Subscription}}
+  {{if eq .CadenceMode "original"}}New episodes are released with the same gaps between them as when the show originally came out.{{else}}New episodes are released {{if eq .EpisodesPerSlot 1}}one at a time{{else}}{{.EpisodesPerSlot}} at a time{{end}}, {{if eq .CadenceDays 1}}every day{{else}}every {{.CadenceDays}} days{{end}} at {{.ReleaseTime}} ({{.Timezone}}).{{end}}
+  {{if eq .SeedCount 0}}No episodes are released up front.{{else if eq .SeedCount 1}}The first episode is released up front, on the start date.{{else}}The first {{.SeedCount}} episodes are released up front, on the start date.{{end}}
+  {{end}}
+</p>
 
 <h2>Release next episode</h2>
 <article>
