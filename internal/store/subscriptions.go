@@ -283,6 +283,17 @@ func (q *Queries) ResumeSubscription(ctx context.Context, id int64, now time.Tim
 	return nil
 }
 
+// AddShiftSeconds moves every non-seeded release by delta seconds
+// (negative pulls them earlier). Callers should Reschedule afterwards.
+func (q *Queries) AddShiftSeconds(ctx context.Context, id int64, delta int) error {
+	_, err := q.db.ExecContext(ctx, `UPDATE subscriptions SET shift_seconds = shift_seconds + ?, updated_at = ? WHERE id = ?`,
+		delta, toDBTime(time.Now().UTC()), id)
+	if err != nil {
+		return fmt.Errorf("store: add shift %d: %w", id, err)
+	}
+	return nil
+}
+
 // UpdateFetchState records the outcome of a poll attempt.
 func (q *Queries) UpdateFetchState(ctx context.Context, id int64, etag, lastModified *string, fetchedAt time.Time, status string) error {
 	_, err := q.db.ExecContext(ctx, `

@@ -307,7 +307,7 @@ func TestReleaseNext(t *testing.T) {
 	sub := h.addSubscription(t) // seed 1: ep 1 released, ep 2 upcoming
 	id := strconv.FormatInt(sub.ID, 10)
 
-	resp := h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/release-next", url.Values{})
+	resp := h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/release-next", url.Values{"mode": {"keep"}})
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("release-next: expected 200 (redirect followed), got %d", resp.StatusCode)
@@ -321,7 +321,7 @@ func TestReleaseNext(t *testing.T) {
 	}
 
 	// Nothing upcoming is left now.
-	resp = h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/release-next", url.Values{})
+	resp = h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/release-next", url.Values{"mode": {"keep"}})
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusConflict {
 		t.Errorf("second release-next: expected 409, got %d", resp.StatusCode)
