@@ -1,3 +1,5 @@
+{{define "logo"}}<svg class="logo" viewBox="0 40 1800 1760" width="48" height="48" role="img" aria-label="PodcastDelay logo"><circle cx="586" cy="642.5" r="578" fill="#8d4cc6"/><g transform="translate(0 2000) scale(.1 -.1)" fill="#fff"><path d="M3640 13390 l0 -3370 765 0 765 0 0 1250 0 1250 503 0 c520 0 681 7 901 41 770 116 1394 574 1657 1215 148 362 198 799 143 1264 -60 505 -281 925 -641 1211 -324 259 -700 410 -1203 486 -104 15 -252 17 -1502 20 l-1388 4 0 -3371z m2285 2127 c292 -52 503 -146 644 -287 88 -87 136 -170 177 -305 26 -84 28 -102 28 -280 1 -170 -1 -199 -22 -270 -41 -143 -86 -220 -187 -321 -78 -78 -105 -98 -200 -146 -118 -60 -225 -97 -382 -130 -85 -18 -144 -21 -455 -25 l-358 -5 0 897 0 897 333 -5 c241 -3 357 -9 422 -20z"/></g><g transform="translate(0 2000) scale(.1 -.1)" class="logo-d"><path d="M9820 5625 l0 -3356 1133 4 c1214 4 1186 3 1487 57 681 123 1289 451 1791 966 527 541 822 1184 901 1964 16 164 16 614 0 755 -93 788 -384 1411 -908 1940 -572 578 -1238 904 -2043 1002 -117 14 -291 17 -1248 20 l-1113 4 0 -3356z m2028 1974 c124 -13 301 -52 411 -91 565 -197 1015 -698 1171 -1303 51 -199 64 -316 64 -575 0 -259 -13 -376 -64 -575 -116 -448 -385 -841 -755 -1100 -324 -226 -680 -325 -1177 -325 l-148 0 0 1990 0 1990 200 0 c111 0 244 -5 298 -11z"/><path d="M16641 3999 c-306 -37 -571 -225 -711 -504 -77 -152 -93 -227 -93 -420 0 -131 3 -174 21 -236 25 -94 68 -190 119 -266 93 -141 285 -302 419 -352 147 -55 202 -65 359 -65 159 0 211 9 346 60 264 99 493 360 560 639 44 182 25 424 -48 589 -89 204 -287 403 -482 486 -142 61 -336 88 -490 69z"/></g></svg>{{end}}
+
 {{define "header"}}<!doctype html>
 <html lang="en">
 <head>
@@ -5,6 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>{{.}} — PodcastDelay</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
 <link rel="icon" type="image/png" href="/static/logo.png">
 <link rel="apple-touch-icon" href="/static/logo.png">
 <link rel="stylesheet" href="/static/pico.min.css">
@@ -13,7 +16,7 @@
 <body>
 <main class="container">
 <nav class="top">
-  <ul><li><a class="brand" href="/admin"><img src="/static/logo.png" alt="" width="48" height="48"><span><span class="brand-podcast">Podcast</span><span class="brand-delay">Delay</span></span></a></li></ul>
+  <ul><li><a class="brand" href="/admin">{{template "logo"}}<span><span class="brand-podcast">Podcast</span><span class="brand-delay">Delay</span></span></a></li></ul>
 </nav>
 {{end}}
 
