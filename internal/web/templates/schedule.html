@@ -19,7 +19,7 @@
         {{if .Excluded}}
         <form method="post" action="/admin/subscriptions/{{$.Subscription.ID}}/episodes/{{.ID}}/include"><button type="submit" class="outline" data-tooltip="Add back to the feed" data-placement="left">Include</button></form>
         {{else}}
-        <form method="post" action="/admin/subscriptions/{{$.Subscription.ID}}/episodes/{{.ID}}/exclude"><button type="submit" class="outline" data-tooltip="Leave out of the feed" data-placement="left">Exclude</button></form>
+        <form method="post" action="/admin/subscriptions/{{$.Subscription.ID}}/episodes/{{.ID}}/exclude"><button type="submit" class="danger" data-tooltip="Leave out of the feed" data-placement="left">Exclude</button></form>
         {{end}}
       </td>
     </tr>

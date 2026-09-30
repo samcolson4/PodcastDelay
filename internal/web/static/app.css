@@ -76,3 +76,21 @@ a.add-btn::before, a.add-btn::after {
 }
 a.add-btn::before { width: 1.1rem; height: 0.16rem; }
 a.add-btn::after { width: 0.16rem; height: 1.1rem; }
+
+/* Brand purple (from the logo) for primary calls to action */
+.btn-brand, .btn-brand.btn-brand:hover, .btn-brand.btn-brand:focus, .btn-brand.btn-brand:active {
+  --pico-background-color: #8d4cc6;
+  --pico-border-color: #8d4cc6;
+  --pico-color: #fff;
+}
+.btn-brand.btn-brand:hover, .btn-brand.btn-brand:active { --pico-background-color: #7a3fb0; --pico-border-color: #7a3fb0; }
+.btn-brand { --pico-box-shadow: none; }
+.btn-brand:focus-visible { --pico-box-shadow: 0 0 0 var(--pico-outline-width) #8d4cc655; }
+
+/* Solid red for destructive buttons outside the actions menu (e.g. Exclude) */
+button.danger:not(.outline), button.danger:not(.outline):hover, button.danger:not(.outline):focus {
+  --pico-background-color: #c0392b;
+  --pico-border-color: #c0392b;
+  --pico-color: #fff;
+}
+button.danger:not(.outline):hover { --pico-background-color: #a5301f; --pico-border-color: #a5301f; }
