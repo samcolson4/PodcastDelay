@@ -13,19 +13,19 @@
   }
 }
 
-main.container { max-width: 1400px; }
-nav.top { margin-bottom: 1rem; }
-nav.top .brand { display: inline-flex; align-items: center; gap: 0.6rem; font-weight: 700; font-size: 2rem; line-height: 1.1; text-decoration: none; }
-nav.top .brand .logo { flex: none; }
+main.container { max-width: 1400px; padding-top: 0.75rem; }
+.site-header { border-bottom: 1px solid var(--pico-muted-border-color); margin-bottom: 0; }
+.site-header nav.top { min-height: 0; }
+.site-header nav.top li { padding-top: 0.1rem; padding-bottom: 0.1rem; }
+nav.top { margin-bottom: 0; }
+nav.top .brand { display: inline-flex; align-items: center; font-weight: 700; font-size: 1.35rem; line-height: 1.2; text-decoration: none; }
 .brand-podcast { color: #8d4cc6; } /* the logo's purple */
 .brand-delay { color: #000; }
-.logo .logo-d { fill: #000; } /* set directly: --pico-color turns link-blue inside <a> */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .brand-delay { color: #fff; } /* black would vanish on a dark page */
-  :root:not([data-theme="light"]) .logo .logo-d { fill: #ececec; }
 }
 :root[data-theme="dark"] .brand-delay { color: #fff; }
-:root[data-theme="dark"] .logo .logo-d { fill: #ececec; }
+
 
 nav.top { align-items: center; }
 
