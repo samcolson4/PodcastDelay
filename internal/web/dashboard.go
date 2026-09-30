@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"html/template"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +24,18 @@ var templateFuncs = template.FuncMap{
 			return "—"
 		}
 		return t.Local().Format("2 Jan 2006 15:04")
+	},
+	"fmtDateOrNil": func(t *time.Time) string {
+		if t == nil {
+			return "—"
+		}
+		return t.Local().Format("2 Jan 2006")
+	},
+	"fmtClockOrNil": func(t *time.Time) string {
+		if t == nil {
+			return ""
+		}
+		return t.Local().Format("15:04")
 	},
 	"fmtInputTime": func(t time.Time) string {
 		return t.Format("2006-01-02T15:04")
@@ -43,6 +57,31 @@ type subscriptionView struct {
 	// FetchStatus is a display bucket for the last fetch: "ok",
 	// "unchanged", "error", or "" if the feed hasn't been fetched yet.
 	FetchStatus string
+	ImageURL    string
+	SourceHost  string
+	// CaughtUpIn is a rough "~12 yrs" until the last episode releases;
+	// empty once caught up.
+	CaughtUpIn string
+}
+
+// approxUntil renders a coarse, human duration like "~12 yrs".
+func approxUntil(d time.Duration) string {
+	days := int(d.Hours() / 24)
+	switch {
+	case days >= 365:
+		n := (days + 182) / 365
+		if n == 1 {
+			return "~1 yr"
+		}
+		return "~" + strconv.Itoa(n) + " yrs"
+	case days >= 30:
+		return "~" + strconv.Itoa((days+15)/30) + " mo"
+	case days >= 7:
+		return "~" + strconv.Itoa(days/7) + " wks"
+	case days >= 1:
+		return "~" + strconv.Itoa(days) + " days"
+	}
+	return "<1 day"
 }
 
 func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) (subscriptionView, error) {
@@ -62,7 +101,12 @@ func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) 
 	}
 
 	now := time.Now().UTC()
-	v := subscriptionView{Subscription: sub, Title: title}
+	v := subscriptionView{Subscription: sub, Title: title, ImageURL: meta.ImageURL}
+	if u, err := url.Parse(sub.SourceURL); err == nil && u.Hostname() != "" {
+		v.SourceHost = strings.TrimPrefix(u.Hostname(), "www.")
+	} else {
+		v.SourceHost = sub.SourceURL
+	}
 
 	var nonExcluded []store.Episode
 	for _, e := range episodes {
@@ -86,6 +130,9 @@ func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) 
 		last := nonExcluded[len(nonExcluded)-1]
 		v.CaughtUpAt = &last.ScheduledAt
 		v.IsCaughtUp = !last.ScheduledAt.After(now)
+		if !v.IsCaughtUp {
+			v.CaughtUpIn = approxUntil(last.ScheduledAt.Sub(now))
+		}
 	}
 	if sub.LastFetchStatus != nil {
 		st := *sub.LastFetchStatus

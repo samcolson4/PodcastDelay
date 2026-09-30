@@ -92,20 +92,13 @@ form.htmx-request { opacity: 0.6; pointer-events: none; }
 .excluded td { text-decoration: line-through; opacity: 0.5; }
 .excluded td:last-child { text-decoration: none; opacity: 1; }
 
-/* Page heading row with the round "+" button */
+/* Page heading row with the "+ Add feed" button */
 .page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
 .page-head h1 { margin: 0; }
 a.add-btn {
-  position: relative; display: block; flex: none;
-  width: 2.75rem; height: 2.75rem; padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; gap: 0.5rem; flex: none;
+  margin: 0; padding: 0.6rem 1.1rem; border-radius: 10px; font-weight: 600; text-decoration: none;
 }
-/* The plus is two bars, not a text glyph, so it sits exactly centred. */
-a.add-btn::before, a.add-btn::after {
-  content: ""; position: absolute; top: 50%; left: 50%; background: currentColor; border-radius: 1px;
-  transform: translate(-50%, -50%);
-}
-a.add-btn::before { width: 1.1rem; height: 0.16rem; }
-a.add-btn::after { width: 0.16rem; height: 1.1rem; }
 
 /* Brand purple (from the logo) for primary calls to action */
 .btn-brand, .btn-brand.btn-brand:hover, .btn-brand.btn-brand:focus, .btn-brand.btn-brand:active {
@@ -127,3 +120,29 @@ button.danger:not(.outline):hover { --pico-background-color: #a5301f; --pico-bor
 
 /* Schedule page: "Hide released episodes" */
 #episodes.hide-released tr[data-released="true"] { display: none; }
+
+/* Feeds table */
+table { font-size: 0.95rem; }
+table th { font-size: 0.85rem; font-weight: 500; text-transform: none; color: var(--pico-muted-color); white-space: nowrap; }
+table td { vertical-align: middle; padding: 0.9rem 0.75rem; }
+.show { display: flex; align-items: center; gap: 0.75rem; }
+.art { width: 44px; height: 44px; flex: none; border-radius: 8px; object-fit: cover; background: var(--pico-muted-border-color); }
+.art-empty { display: flex; align-items: center; justify-content: center; font-size: 0.7rem; color: var(--pico-muted-color); }
+.progress-cell { min-width: 11rem; }
+.progress-cell progress { display: block; height: 4px; margin: 0.35rem 0; color: #8d4cc6; }
+.progress-cell progress::-webkit-progress-value { background: #8d4cc6; }
+.progress-cell progress::-moz-progress-bar { background: #8d4cc6; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; }
+.row-actions button[data-copy] { width: auto; margin: 0; padding: 0.4rem 0.8rem; font-size: 0.85rem; white-space: nowrap; }
+
+/* "⋯" menu trigger: no box, just the dots */
+.actions details.dropdown > summary,
+.actions details.dropdown > summary:hover,
+.actions details.dropdown > summary:focus,
+.actions details.dropdown[open] > summary {
+  background: transparent; border-color: transparent; box-shadow: none;
+  --pico-background-color: transparent; --pico-border-color: transparent; --pico-box-shadow: none;
+  color: var(--pico-muted-color);
+}
+.actions details.dropdown > summary:hover, .actions details.dropdown[open] > summary { color: var(--pico-color); }
+.actions details.dropdown > summary:focus-visible { outline: 2px solid #8d4cc655; outline-offset: 2px; }
