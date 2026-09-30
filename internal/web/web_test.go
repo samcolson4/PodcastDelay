@@ -301,3 +301,29 @@ func TestStaticAssets_ServedWithoutAuth(t *testing.T) {
 		t.Errorf("/static/: expected 404 (no listing), got %d", resp.StatusCode)
 	}
 }
+
+func TestReleaseNext(t *testing.T) {
+	h := newTestHarness(t)
+	sub := h.addSubscription(t) // seed 1: ep 1 released, ep 2 upcoming
+	id := strconv.FormatInt(sub.ID, 10)
+
+	resp := h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/release-next", url.Values{})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("release-next: expected 200 (redirect followed), got %d", resp.StatusCode)
+	}
+	eps, err := h.store.ListBySubscription(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !eps[1].Locked || eps[1].ScheduledAt.After(time.Now()) {
+		t.Errorf("episode 2 should be released and locked, got locked=%v at=%v", eps[1].Locked, eps[1].ScheduledAt)
+	}
+
+	// Nothing upcoming is left now.
+	resp = h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/release-next", url.Values{})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("second release-next: expected 409, got %d", resp.StatusCode)
+	}
+}

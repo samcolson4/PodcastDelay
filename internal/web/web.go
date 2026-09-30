@@ -73,6 +73,7 @@ func (s *Server) Routes() http.Handler {
 	admin.HandleFunc("POST /admin/subscriptions/{id}/refresh", s.handleForceRefresh)
 	admin.HandleFunc("POST /admin/subscriptions/{id}/pause", s.handlePause)
 	admin.HandleFunc("POST /admin/subscriptions/{id}/resume", s.handleResume)
+	admin.HandleFunc("POST /admin/subscriptions/{id}/release-next", s.handleReleaseNext)
 	admin.HandleFunc("POST /admin/subscriptions/{id}/episodes/{episode_id}/exclude", s.handleExcludeEpisode)
 	admin.HandleFunc("POST /admin/subscriptions/{id}/episodes/{episode_id}/include", s.handleIncludeEpisode)
 	admin.HandleFunc("GET /admin/subscriptions/{id}/schedule", s.handleSchedulePreview)

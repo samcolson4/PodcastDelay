@@ -255,6 +255,36 @@ func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
 	s.redirectOrOK(w, r, "/admin")
 }
 
+// handleReleaseNext releases the earliest still-upcoming episode right
+// now. It is locked so a later reschedule can't move it back; episodes
+// after it keep their existing slots.
+func (s *Server) handleReleaseNext(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return
+	}
+	episodes, err := s.Store.ListBySubscription(r.Context(), id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	now := time.Now().UTC()
+	for _, e := range episodes {
+		if e.Excluded || e.Locked || e.MissingSince != nil || !e.ScheduledAt.After(now) {
+			continue
+		}
+		if err := s.Store.SetSchedule(r.Context(), e.ID, now, true); err != nil {
+			s.Logger.Error("admin: release next failed", "id", id, "error", err)
+			http.Error(w, "release failed", http.StatusInternalServerError)
+			return
+		}
+		s.redirectOrOK(w, r, "/admin")
+		return
+	}
+	http.Error(w, "No upcoming episodes left to release", http.StatusConflict)
+}
+
 func (s *Server) handleExcludeEpisode(w http.ResponseWriter, r *http.Request) {
 	s.setExcluded(w, r, true)
 }
