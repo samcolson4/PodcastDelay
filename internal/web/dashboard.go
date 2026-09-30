@@ -129,7 +129,13 @@ func (s *Server) renderDashboardWithError(w http.ResponseWriter, r *http.Request
 
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
+	tmpl, err := s.templates()
+	if err != nil {
+		s.Logger.Error("template parse failed", "error", err)
+		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
 		s.Logger.Error("render failed", "template", name, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}

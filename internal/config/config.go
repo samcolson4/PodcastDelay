@@ -30,6 +30,9 @@ type Config struct {
 	DefaultTimezone string
 	PollInterval    time.Duration
 	LogLevel        string
+	// DevWebDir (PODCASTDELAY_DEV_WEB_DIR) serves templates/static from
+	// disk for live UI editing; leave unset in production.
+	DevWebDir string
 }
 
 // Load reads configuration from the environment, applying defaults and
@@ -44,6 +47,7 @@ func Load() (Config, error) {
 		AdminUser:       os.Getenv("PODCASTDELAY_ADMIN_USER"),
 		DefaultTimezone: getenv("PODCASTDELAY_DEFAULT_TIMEZONE", "UTC"),
 		LogLevel:        getenv("PODCASTDELAY_LOG_LEVEL", "info"),
+		DevWebDir:       os.Getenv("PODCASTDELAY_DEV_WEB_DIR"),
 	}
 
 	pw, err := readSecret("PODCASTDELAY_ADMIN_PASSWORD")

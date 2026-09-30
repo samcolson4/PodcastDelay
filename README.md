@@ -73,3 +73,23 @@ docker buildx build --platform linux/amd64,linux/arm64 -t podcastdelay .
 
 `internal/schedule` is the pure release-time engine (no I/O) — start there if
 you're trying to understand the seeding/locking/rescheduling rules.
+
+### Editing the UI without rebuilding
+
+The admin UI is server-rendered Go templates plus vendored [Pico CSS](https://picocss.com)
+and [htmx](https://htmx.org) (`internal/web/templates`, `internal/web/static`); all of it is
+embedded in the binary. Set `PODCASTDELAY_DEV_WEB_DIR` to a directory containing `templates/`
+and `static/` and the server reads them from disk on every request, so a browser refresh
+picks up edits. With Compose, put this in your gitignored `compose.override.yaml`:
+
+```yaml
+services:
+  podcastdelay:
+    build: .
+    environment:
+      PODCASTDELAY_DEV_WEB_DIR: /webdev
+    volumes:
+      - ./internal/web:/webdev:ro
+```
+
+Go changes still need `docker compose up -d --build`. Don't set the variable in production.
