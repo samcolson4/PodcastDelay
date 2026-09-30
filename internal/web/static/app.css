@@ -24,6 +24,20 @@ nav.top .brand .logo { flex: none; }
   :root:not([data-theme="light"]) .brand-delay { color: #fff; } /* black would vanish on a dark page */
   :root:not([data-theme="light"]) .logo .logo-d { fill: #ececec; }
 }
+:root[data-theme="dark"] .brand-delay { color: #fff; }
+:root[data-theme="dark"] .logo .logo-d { fill: #ececec; }
+
+nav.top { align-items: center; }
+
+/* Icon-only theme switch: auto / light / dark */
+.theme-switch { display: inline-flex; border: 1px solid var(--pico-muted-border-color); border-radius: 999px; overflow: hidden; }
+.theme-switch button {
+  display: flex; align-items: center; justify-content: center;
+  width: 2.2rem; height: 2rem; margin: 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--pico-muted-color); box-shadow: none;
+}
+.theme-switch button:hover { color: var(--pico-color); background: var(--pico-muted-border-color); }
+.theme-switch button[aria-pressed="true"] { background: #8d4cc6; color: #fff; }
 
 .table-wrap { overflow: visible; } /* the actions menu must not be clipped */
 table { font-size: 0.85rem; }

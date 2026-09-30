@@ -43,6 +43,28 @@
     });
   });
 
+  // Theme switch: auto (system) / light / dark, remembered per browser.
+  var themeBtns = document.querySelectorAll('[data-theme-value]');
+  if (themeBtns.length) {
+    var markTheme = function (v) {
+      themeBtns.forEach(function (b) {
+        b.setAttribute('aria-pressed', b.dataset.themeValue === v ? 'true' : 'false');
+      });
+    };
+    var saved = 'auto';
+    try { saved = localStorage.getItem('theme') || 'auto'; } catch (e) {}
+    markTheme(saved === 'light' || saved === 'dark' ? saved : 'auto');
+    themeBtns.forEach(function (b) {
+      b.addEventListener('click', function () {
+        var v = b.dataset.themeValue;
+        if (v === 'auto') document.documentElement.removeAttribute('data-theme');
+        else document.documentElement.setAttribute('data-theme', v);
+        try { localStorage.setItem('theme', v); } catch (e) {}
+        markTheme(v);
+      });
+    });
+  }
+
   // Schedule page: hide already-released episodes (remembered per browser).
   var hideBox = document.getElementById('hide-released');
   var epTable = document.getElementById('episodes');
