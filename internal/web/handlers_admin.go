@@ -313,8 +313,10 @@ func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 
 	type row struct {
 		store.Episode
-		Preview time.Time
+		Preview  time.Time
+		Released bool
 	}
+	now := time.Now().UTC()
 	rows := make([]row, 0, len(episodes))
 	for _, e := range episodes {
 		at := e.ScheduledAt
@@ -323,7 +325,7 @@ func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 				at = computed
 			}
 		}
-		rows = append(rows, row{Episode: e, Preview: at})
+		rows = append(rows, row{Episode: e, Preview: at, Released: !at.After(now)})
 	}
 
 	s.render(w, "schedule.html", map[string]any{

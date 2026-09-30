@@ -7,13 +7,14 @@
 
 <div class="table-wrap">
 <table>
-  <thead><tr><th>#</th><th>Title</th><th>Release</th><th></th></tr></thead>
+  <thead><tr><th>#</th><th>Title</th><th>Release</th><th>State</th><th></th></tr></thead>
   <tbody>
   {{range .Episodes}}
     <tr class="{{if .Excluded}}excluded{{end}}">
       <td>{{.Position}}</td>
       <td>{{.Title}}</td>
       <td>{{fmtTime .Preview}}</td>
+      <td>{{if .Released}}<span class="badge ok">Released</span>{{else}}<span class="badge warn">Upcoming</span>{{end}}</td>
       <td>
         {{if .Excluded}}
         <form method="post" action="/admin/subscriptions/{{$.Subscription.ID}}/episodes/{{.ID}}/include"><button type="submit" class="outline" data-tooltip="Add back to the feed" data-placement="left">Include</button></form>
