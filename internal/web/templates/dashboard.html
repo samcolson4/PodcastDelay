@@ -1,36 +1,13 @@
-{{define "dashboard.html"}}
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PodcastDelay admin</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; line-height: 1.4; }
-  h1 { font-size: 1.4rem; }
-  h2 { font-size: 1.1rem; margin-top: 2.5rem; }
-  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #8884; vertical-align: top; }
-  th { font-size: 0.8rem; text-transform: uppercase; opacity: 0.7; }
-  form.inline { display: inline; }
-  form.card { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
-  form.card label { display: block; margin-top: 0.6rem; font-size: 0.85rem; }
-  form.card input, form.card select { width: 100%; padding: 0.35rem; box-sizing: border-box; }
-  .row { display: flex; gap: 1rem; }
-  .row > div { flex: 1; }
-  button { cursor: pointer; }
-  .muted { opacity: 0.65; font-size: 0.85rem; }
-  .error { color: #c00; margin-top: 1rem; }
-  .feed-url { font-family: ui-monospace, monospace; font-size: 0.8rem; word-break: break-all; }
-  .actions button { margin: 0 0.15rem 0.15rem 0; }
-</style>
-</head>
-<body>
-<h1>PodcastDelay</h1>
+{{define "dashboard.html"}}{{template "header" "Feeds"}}
 
-{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{if .Error}}<article class="error-banner" role="alert">{{.Error}}</article>{{end}}
 
+<header class="page-head">
+  <h1>Feeds</h1>
+  <a role="button" class="add-btn" href="/admin/subscriptions/new" title="Add a feed" aria-label="Add a feed"></a>
+</header>
+
+<div class="table-wrap">
 <table>
   <thead>
     <tr>
@@ -38,75 +15,58 @@
       <th>Progress</th>
       <th>Next release</th>
       <th>Feed URL</th>
+      <th>Original URL</th>
       <th>Status</th>
       <th>Actions</th>
     </tr>
   </thead>
-  <tbody>
+  {{/* Every row action posts via htmx and swaps in a fresh tbody taken from the
+       redirect target (/admin). Without JS the plain forms still work. */}}
+  <tbody id="subs" hx-target="#subs" hx-select="#subs" hx-swap="outerHTML">
   {{range .Subscriptions}}
     <tr>
-      <td>
-        <strong>{{.Title}}</strong><br>
-        <span class="muted">{{.SourceURL}}</span><br>
-        <span class="muted">{{if eq .CadenceMode "original"}}original cadence{{else}}every {{.CadenceDays}}d at {{.ReleaseTime}} ({{.Timezone}}){{end}}{{if .PausedAt}} — paused{{end}}</span>
-      </td>
+      <td><strong>{{.Title}}</strong></td>
       <td>
         {{if .IsCaughtUp}}
-          caught up ({{.ReleasedCount}}/{{.TotalEpisodes}})
+          Caught up <span class="muted">({{.ReleasedCount}}/{{.TotalEpisodes}})</span>
         {{else}}
-          ep {{.ReleasedCount}} of {{.TotalEpisodes}}{{if .CaughtUpAt}}<br><span class="muted">caught up {{fmtTimeOrNil .CaughtUpAt}}</span>{{end}}
+          Ep {{.ReleasedCount}} of {{.TotalEpisodes}}{{if .CaughtUpAt}}<br><span class="muted">caught up {{fmtTimeOrNil .CaughtUpAt}}</span>{{end}}
         {{end}}
       </td>
       <td>{{fmtTimeOrNil .NextReleaseAt}}</td>
-      <td class="feed-url">{{$.BaseURL}}/f/{{.Token}}.xml</td>
+      <td class="url-cell">
+        <span class="mono">{{$.BaseURL}}/f/{{.Token}}.xml</span>
+      </td>
+      <td class="mono url-cell">{{.SourceURL}}</td>
       <td>
-        {{if .LastFetchError}}<span class="muted">{{.LastFetchError}}</span>{{else}}<span class="muted">—</span>{{end}}
+        {{if .PausedAt}}<span class="badge paused">Paused</span>{{end}}
+        {{if or (eq .FetchStatus "ok") (eq .FetchStatus "unchanged")}}<span class="badge ok" data-tooltip="Up to date" data-placement="top">OK</span>
+        {{else if eq .FetchStatus "error"}}<span class="badge error">Error</span><span class="muted status-msg">{{.LastFetchError}}</span>
+        {{else}}<span class="muted">Not fetched yet</span>{{end}}
       </td>
       <td class="actions">
-        <form class="inline" method="post" action="/admin/subscriptions/{{.ID}}/refresh"><button type="submit">Refresh</button></form>
-        {{if .PausedAt}}
-        <form class="inline" method="post" action="/admin/subscriptions/{{.ID}}/resume"><button type="submit">Resume</button></form>
-        {{else}}
-        <form class="inline" method="post" action="/admin/subscriptions/{{.ID}}/pause"><button type="submit">Pause</button></form>
-        {{end}}
-        <a href="/admin/subscriptions/{{.ID}}/schedule"><button type="button">Schedule</button></a>
-        <form class="inline" method="post" action="/admin/subscriptions/{{.ID}}/delete" onsubmit="return confirm('Delete this feed? This cannot be undone.');"><button type="submit">Delete</button></form>
+        <details class="dropdown">
+          <summary aria-label="Actions" role="button" class="outline secondary">&#8943;</summary>
+          <ul>
+            <li><button type="button" data-copy="{{$.BaseURL}}/f/{{.Token}}.xml">Copy feed URL</button></li>
+            <li><form hx-post="/admin/subscriptions/{{.ID}}/refresh" method="post" action="/admin/subscriptions/{{.ID}}/refresh"><button type="submit">Refresh</button></form></li>
+            {{if .PausedAt}}
+            <li><form hx-post="/admin/subscriptions/{{.ID}}/resume" method="post" action="/admin/subscriptions/{{.ID}}/resume"><button type="submit">Resume</button></form></li>
+            {{else}}
+            <li><form hx-post="/admin/subscriptions/{{.ID}}/pause" method="post" action="/admin/subscriptions/{{.ID}}/pause"><button type="submit">Pause</button></form></li>
+            {{end}}
+            <li><a href="/admin/subscriptions/{{.ID}}/schedule">Schedule</a></li>
+            <li><form hx-post="/admin/subscriptions/{{.ID}}/delete" hx-confirm="Delete this feed? This cannot be undone." method="post" action="/admin/subscriptions/{{.ID}}/delete" onsubmit="return window.htmx || confirm('Delete this feed? This cannot be undone.');"><button type="submit" class="danger">Delete</button></form></li>
+          </ul>
+        </details>
       </td>
     </tr>
   {{else}}
-    <tr><td colspan="6" class="muted">No feeds yet — add one below.</td></tr>
+    <tr><td colspan="7" class="muted">No feeds yet — add one below.</td></tr>
   {{end}}
   </tbody>
 </table>
+</div>
 
-<h2>Add a feed</h2>
-<form class="card" method="post" action="/admin/subscriptions">
-  <label>Source RSS URL
-    <input type="url" name="source_url" required placeholder="https://example.com/feed.xml">
-  </label>
-  <label>Release pace
-    <select name="cadence_mode" id="cadence_mode" onchange="document.getElementById('fixed-opts').style.display = this.value === 'fixed' ? '' : 'none'">
-      <option value="fixed">Fixed cadence: one episode every N days</option>
-      <option value="original">Original cadence: same gaps as the show's real release dates</option>
-    </select>
-  </label>
-  <div class="row" id="fixed-opts">
-    <div><label>Cadence (days)<input type="number" name="cadence_days" min="1" value="7"></label></div>
-    <div><label>Release time<input type="time" name="release_time" value="07:00"></label></div>
-  </div>
-  <div class="row">
-    <div><label>Timezone<input type="text" name="timezone" value="{{.DefaultTimezone}}"></label></div>
-    <div><label>Start at<input type="datetime-local" name="start_at" value="{{fmtInputTime .Now}}"></label></div>
-    <div><label>Episodes already heard (released straight away)<input type="number" name="seed_count" min="0" value="1"></label></div>
-    <div><label>Episodes per slot (fixed only)<input type="number" name="episodes_per_slot" min="1" value="1"></label></div>
-  </div>
-  <div class="row">
-    <div><label>Title override (optional)<input type="text" name="title_override"></label></div>
-    <div><label>Max feed items (optional)<input type="number" name="max_feed_items" min="1"></label></div>
-  </div>
-  <p><button type="submit">Add feed</button></p>
-</form>
-
-</body>
-</html>
+{{template "footer"}}
 {{end}}

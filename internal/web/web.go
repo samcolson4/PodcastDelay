@@ -64,6 +64,7 @@ func (s *Server) Routes() http.Handler {
 
 	admin := http.NewServeMux()
 	admin.HandleFunc("GET /admin", s.handleDashboard)
+	admin.HandleFunc("GET /admin/subscriptions/new", s.handleNewSubscription)
 	admin.HandleFunc("POST /admin/subscriptions", s.handleCreateSubscription)
 	admin.HandleFunc("PATCH /admin/subscriptions/{id}", s.handlePatchSubscription)
 	admin.HandleFunc("POST /admin/subscriptions/{id}/edit", s.handlePatchSubscription) // form-friendly alias, no JS/method-override needed

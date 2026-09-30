@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/samcolson4/podcastdelay/internal/store"
@@ -39,6 +40,9 @@ type subscriptionView struct {
 	CaughtUpAt     *time.Time
 	IsCaughtUp     bool
 	LastFetchError string
+	// FetchStatus is a display bucket for the last fetch: "ok",
+	// "unchanged", "error", or "" if the feed hasn't been fetched yet.
+	FetchStatus string
 }
 
 func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) (subscriptionView, error) {
@@ -84,7 +88,16 @@ func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) 
 		v.IsCaughtUp = !last.ScheduledAt.After(now)
 	}
 	if sub.LastFetchStatus != nil {
-		v.LastFetchError = *sub.LastFetchStatus
+		st := *sub.LastFetchStatus
+		switch {
+		case st == "ok":
+			v.FetchStatus = "ok"
+		case st == "not_modified":
+			v.FetchStatus = "unchanged"
+		case st != "":
+			v.FetchStatus = "error"
+			v.LastFetchError = strings.TrimPrefix(st, "error: ")
+		}
 	}
 
 	return v, nil
@@ -111,6 +124,20 @@ func (s *Server) renderDashboardWithError(w http.ResponseWriter, r *http.Request
 		views = append(views, v)
 	}
 
+	s.render(w, "dashboard.html", map[string]any{
+		"Subscriptions": views,
+		"Error":         errMsg,
+		"BaseURL":       s.BaseURL,
+	})
+}
+
+func (s *Server) handleNewSubscription(w http.ResponseWriter, r *http.Request) {
+	s.renderNewSubscription(w, "")
+}
+
+// renderNewSubscription renders the add-feed page; errors from the
+// create handler land here so the form stays in front of the user.
+func (s *Server) renderNewSubscription(w http.ResponseWriter, errMsg string) {
 	// The start_at field is interpreted in the chosen timezone, so its
 	// default must be "now" on that clock, not UTC.
 	now := time.Now().UTC()
@@ -118,10 +145,8 @@ func (s *Server) renderDashboardWithError(w http.ResponseWriter, r *http.Request
 		now = now.In(loc)
 	}
 
-	s.render(w, "dashboard.html", map[string]any{
-		"Subscriptions":   views,
+	s.render(w, "new.html", map[string]any{
 		"Error":           errMsg,
-		"BaseURL":         s.BaseURL,
 		"DefaultTimezone": s.DefaultTimezone,
 		"Now":             now,
 	})

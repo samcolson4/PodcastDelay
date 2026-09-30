@@ -1,0 +1,72 @@
+/* PodcastDelay admin — small layer on top of Pico. */
+main.container { max-width: 1400px; }
+nav.top { margin-bottom: 1rem; }
+nav.top .brand { font-weight: 700; font-size: 1.15rem; text-decoration: none; }
+
+.table-wrap { overflow: visible; } /* the actions menu must not be clipped */
+table { font-size: 0.85rem; }
+table td, table th { vertical-align: top; padding: 0.5rem 0.5rem; }
+table th { white-space: nowrap; }
+td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; overflow-wrap: anywhere; }
+.muted { color: var(--pico-muted-color); font-size: 0.85rem; }
+
+/* Compact buttons inside tables */
+
+/* Actions "⋯" menu (Pico dropdown, right-aligned, no chevron) */
+.actions { width: 1%; }
+.actions details.dropdown { margin: 0; width: auto; }
+.actions details.dropdown > summary {
+  display: flex; align-items: center; justify-content: center;
+  width: 2.2rem; height: 1.8rem; margin: 0; padding: 0; font-size: 1.1rem; line-height: 1; text-align: center;
+}
+.actions details.dropdown > summary::after { display: none !important; background-image: none !important; content: none !important; }
+.actions details.dropdown ul { left: auto; right: 0; width: max-content; min-width: 9rem; white-space: nowrap; }
+.actions details.dropdown ul li { padding: 0; }
+.actions li form { margin: 0; }
+.actions details.dropdown ul li button, .actions details.dropdown ul li a {
+  display: block; width: 100%; margin: 0; padding: 0.5rem 1rem; text-align: left; text-decoration: none; box-sizing: border-box;
+  background: none; border: 0; color: inherit; font-size: 0.85rem; cursor: pointer;
+}
+.actions details.dropdown ul li button:hover, .actions details.dropdown ul li a:hover { background: var(--pico-dropdown-hover-background-color); }
+.actions details.dropdown ul li button.danger { color: var(--pico-del-color); }
+.url-cell { overflow-wrap: anywhere; }
+
+/* Status badges */
+.badge { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+.badge.ok { background: #1f8a4c22; color: #1f8a4c; }
+.badge.warn { background: #c4770022; color: #c47700; }
+.badge.error { background: #c0392b22; color: var(--pico-del-color); }
+.badge.paused { background: var(--pico-muted-border-color); color: var(--pico-muted-color); }
+.status-msg { display: block; margin-top: 0.25rem; overflow-wrap: anywhere; }
+
+form.htmx-request { opacity: 0.6; pointer-events: none; }
+
+/* Toast */
+#toast {
+  position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%) translateY(2rem);
+  background: var(--pico-contrast-background); color: var(--pico-contrast-inverse);
+  padding: 0.6rem 1.1rem; border-radius: var(--pico-border-radius); box-shadow: 0 4px 16px #0004;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s; z-index: 1000; max-width: 90vw;
+}
+#toast.show { opacity: 1; transform: translateX(-50%); }
+#toast.error { background: var(--pico-del-color); color: #fff; }
+
+.error-banner { border-left: 4px solid var(--pico-del-color); }
+.locked { opacity: 0.6; }
+.excluded td { text-decoration: line-through; opacity: 0.5; }
+.excluded td:last-child { text-decoration: none; opacity: 1; }
+
+/* Page heading row with the round "+" button */
+.page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.page-head h1 { margin: 0; }
+a.add-btn {
+  position: relative; display: block; flex: none;
+  width: 2.75rem; height: 2.75rem; padding: 0; border-radius: 50%;
+}
+/* The plus is two bars, not a text glyph, so it sits exactly centred. */
+a.add-btn::before, a.add-btn::after {
+  content: ""; position: absolute; top: 50%; left: 50%; background: currentColor; border-radius: 1px;
+  transform: translate(-50%, -50%);
+}
+a.add-btn::before { width: 1.1rem; height: 0.16rem; }
+a.add-btn::after { width: 0.16rem; height: 1.1rem; }

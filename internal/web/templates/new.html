@@ -1,0 +1,35 @@
+{{define "new.html"}}{{template "header" "Add a feed"}}
+<p><a href="/admin">&larr; Back to feeds</a></p>
+{{if .Error}}<article class="error-banner" role="alert">{{.Error}}</article>{{end}}
+<h1>Add a feed</h1>
+<article>
+<form method="post" action="/admin/subscriptions">
+  <label>Source RSS URL
+    <input type="url" name="source_url" required placeholder="https://example.com/feed.xml">
+  </label>
+  <label>Release pace
+    <select name="cadence_mode" id="cadence_mode" onchange="document.getElementById('fixed-opts').hidden = this.value !== 'fixed'">
+      <option value="fixed">Fixed cadence: one episode every N days</option>
+      <option value="original">Original cadence: same gaps as the show's real release dates</option>
+    </select>
+  </label>
+  <div class="grid" id="fixed-opts">
+    <label>Cadence (days)<input type="number" name="cadence_days" min="1" value="7"></label>
+    <label>Release time<input type="time" name="release_time" value="07:00"></label>
+    <label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="1"></label>
+  </div>
+  <div class="grid">
+    <label>Timezone<input type="text" name="timezone" value="{{.DefaultTimezone}}"></label>
+    <label>Start at<input type="datetime-local" name="start_at" value="{{fmtInputTime .Now}}"></label>
+    <label>Episodes already heard<input type="number" name="seed_count" min="0" value="1"></label>
+  </div>
+  <div class="grid">
+    <label>Title override (optional)<input type="text" name="title_override"></label>
+    <label>Max feed items (optional)<input type="number" name="max_feed_items" min="1"></label>
+  </div>
+  <button type="submit">Add feed</button>
+</form>
+</article>
+
+{{template "footer"}}
+{{end}}

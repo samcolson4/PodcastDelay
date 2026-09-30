@@ -279,3 +279,25 @@ func TestPatchSubscription_ReschedulesUnlockedOnly(t *testing.T) {
 		t.Error("expected unlocked future episode's scheduled_at to change after cadence edit")
 	}
 }
+
+func TestStaticAssets_ServedWithoutAuth(t *testing.T) {
+	h := newTestHarness(t)
+	for _, p := range []string{"/static/pico.min.css", "/static/htmx.min.js", "/static/app.js", "/static/app.css"} {
+		resp, err := http.Get(h.http.URL + p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", p, resp.StatusCode)
+		}
+	}
+	resp, err := http.Get(h.http.URL + "/static/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("/static/: expected 404 (no listing), got %d", resp.StatusCode)
+	}
+}

@@ -23,34 +23,34 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 
 	sourceURL := strings.TrimSpace(r.FormValue("source_url"))
 	if sourceURL == "" {
-		s.renderDashboardWithError(w, r, "source_url is required")
+		s.renderNewSubscription(w, "source_url is required")
 		return
 	}
 
 	cadenceDays, err := strconv.Atoi(defaultStr(r.FormValue("cadence_days"), "7"))
 	if err != nil || cadenceDays < 1 {
-		s.renderDashboardWithError(w, r, "cadence_days must be a positive integer")
+		s.renderNewSubscription(w, "cadence_days must be a positive integer")
 		return
 	}
 	cadenceMode := defaultStr(r.FormValue("cadence_mode"), "fixed")
 	if cadenceMode != "fixed" && cadenceMode != "original" {
-		s.renderDashboardWithError(w, r, "cadence_mode must be fixed or original")
+		s.renderNewSubscription(w, "cadence_mode must be fixed or original")
 		return
 	}
 	seedCount, err := strconv.Atoi(defaultStr(r.FormValue("seed_count"), "1"))
 	if err != nil || seedCount < 0 {
-		s.renderDashboardWithError(w, r, "seed_count must be a non-negative integer")
+		s.renderNewSubscription(w, "seed_count must be a non-negative integer")
 		return
 	}
 	episodesPerSlot, err := strconv.Atoi(defaultStr(r.FormValue("episodes_per_slot"), "1"))
 	if err != nil || episodesPerSlot < 1 {
-		s.renderDashboardWithError(w, r, "episodes_per_slot must be a positive integer")
+		s.renderNewSubscription(w, "episodes_per_slot must be a positive integer")
 		return
 	}
 	releaseTime := defaultStr(r.FormValue("release_time"), "07:00")
 	timezone := defaultStr(r.FormValue("timezone"), s.DefaultTimezone)
 	if _, err := time.LoadLocation(timezone); err != nil {
-		s.renderDashboardWithError(w, r, "invalid timezone: "+err.Error())
+		s.renderNewSubscription(w, "invalid timezone: "+err.Error())
 		return
 	}
 
@@ -58,7 +58,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	if v := strings.TrimSpace(r.FormValue("start_at")); v != "" {
 		parsed, err := time.Parse("2006-01-02T15:04", v)
 		if err != nil {
-			s.renderDashboardWithError(w, r, "invalid start_at, expected YYYY-MM-DDTHH:MM")
+			s.renderNewSubscription(w, "invalid start_at, expected YYYY-MM-DDTHH:MM")
 			return
 		}
 		loc, _ := time.LoadLocation(timezone)
@@ -73,7 +73,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	if v := strings.TrimSpace(r.FormValue("max_feed_items")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			s.renderDashboardWithError(w, r, "max_feed_items must be a positive integer")
+			s.renderNewSubscription(w, "max_feed_items must be a positive integer")
 			return
 		}
 		maxFeedItems = &n
@@ -93,7 +93,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	})
 	if err != nil {
 		s.Logger.Error("admin: add subscription failed", "error", err)
-		s.renderDashboardWithError(w, r, "could not add feed: "+err.Error())
+		s.renderNewSubscription(w, "could not add feed: "+err.Error())
 		return
 	}
 
