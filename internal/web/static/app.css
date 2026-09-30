@@ -94,3 +94,6 @@ button.danger:not(.outline), button.danger:not(.outline):hover, button.danger:no
   --pico-color: #fff;
 }
 button.danger:not(.outline):hover { --pico-background-color: #a5301f; --pico-border-color: #a5301f; }
+
+/* Schedule page: "Hide released episodes" */
+#episodes.hide-released tr[data-released="true"] { display: none; }

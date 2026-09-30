@@ -43,6 +43,19 @@
     });
   });
 
+  // Schedule page: hide already-released episodes (remembered per browser).
+  var hideBox = document.getElementById('hide-released');
+  var epTable = document.getElementById('episodes');
+  if (hideBox && epTable) {
+    try { hideBox.checked = localStorage.getItem('hideReleased') === '1'; } catch (e) {}
+    var apply = function () { epTable.classList.toggle('hide-released', hideBox.checked); };
+    hideBox.addEventListener('change', function () {
+      apply();
+      try { localStorage.setItem('hideReleased', hideBox.checked ? '1' : '0'); } catch (e) {}
+    });
+    apply();
+  }
+
   // Close any open actions menu when clicking elsewhere.
   document.addEventListener('click', function (e) {
     document.querySelectorAll('.actions details[open]').forEach(function (d) {

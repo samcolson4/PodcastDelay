@@ -3,14 +3,45 @@
 <h1>Schedule</h1>
 <p class="muted">Every {{.Subscription.CadenceDays}} day(s) at {{.Subscription.ReleaseTime}} ({{.Subscription.Timezone}}), seed {{.Subscription.SeedCount}}, {{.Subscription.EpisodesPerSlot}}/slot.</p>
 
+<h2>Release next episode</h2>
+<article>
+<p class="muted">Release the next upcoming episode right now. <strong>Keep schedule</strong> leaves every later episode on its current date. <strong>Update schedule</strong> moves the later episodes so the next one follows on the normal cadence from today.</p>
+<form method="post" action="/admin/subscriptions/{{.Subscription.ID}}/release-next">
+  <div class="grid">
+    <button type="submit" name="mode" value="keep" class="outline" {{if not .HasUpcoming}}disabled{{end}}>Release &amp; keep schedule</button>
+    <button type="submit" name="mode" value="shift" class="btn-brand" {{if not .HasUpcoming}}disabled{{end}}>Release &amp; update schedule</button>
+  </div>
+  {{if not .HasUpcoming}}<p class="muted">No upcoming episodes left to release.</p>{{end}}
+</form>
+</article>
+
+<h2>Edit schedule</h2>
+<article>
+<form method="post" action="/admin/subscriptions/{{.Subscription.ID}}/edit">
+  <div class="grid">
+    <label>Cadence (days)<input type="number" name="cadence_days" min="1" value="{{.Subscription.CadenceDays}}"></label>
+    <label>Release time<input type="time" name="release_time" value="{{.Subscription.ReleaseTime}}"></label>
+    <label>Timezone<input type="text" name="timezone" value="{{.Subscription.Timezone}}"></label>
+  </div>
+  <div class="grid">
+    <label>Start at<input type="datetime-local" name="start_at" value="{{fmtInputTime .Subscription.StartAt}}"></label>
+    <label>Seed count<input type="number" name="seed_count" min="0" value="{{.Subscription.SeedCount}}"></label>
+    <label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="{{.Subscription.EpisodesPerSlot}}"></label>
+  </div>
+  <p class="muted">Only not-yet-released episodes move when you save.</p>
+  <button type="submit" class="btn-brand">Save &amp; reschedule</button>
+</form>
+</article>
+<h2>Episodes</h2>
+<label><input type="checkbox" role="switch" id="hide-released"> Hide released episodes</label>
 <p class="muted"><strong>Exclude</strong> leaves an episode out of the feed (handy for trailers or ads). It stays here, struck through, and <strong>Include</strong> brings it back. Later episodes don't move up to fill the gap.</p>
 
 <div class="table-wrap">
-<table>
+<table id="episodes">
   <thead><tr><th>#</th><th>Title</th><th>Release</th><th>State</th><th></th></tr></thead>
   <tbody>
   {{range .Episodes}}
-    <tr class="{{if .Excluded}}excluded{{end}}">
+    <tr class="{{if .Excluded}}excluded{{end}}" data-released="{{.Released}}">
       <td>{{.Position}}</td>
       <td>{{.Title}}</td>
       <td>{{fmtTime .Preview}}</td>
@@ -28,22 +59,5 @@
 </table>
 </div>
 
-<h2>Edit schedule</h2>
-<article>
-<form method="post" action="/admin/subscriptions/{{.Subscription.ID}}/edit">
-  <div class="grid">
-    <label>Cadence (days)<input type="number" name="cadence_days" min="1" value="{{.Subscription.CadenceDays}}"></label>
-    <label>Release time<input type="time" name="release_time" value="{{.Subscription.ReleaseTime}}"></label>
-    <label>Timezone<input type="text" name="timezone" value="{{.Subscription.Timezone}}"></label>
-  </div>
-  <div class="grid">
-    <label>Start at<input type="datetime-local" name="start_at" value="{{fmtInputTime .Subscription.StartAt}}"></label>
-    <label>Seed count<input type="number" name="seed_count" min="0" value="{{.Subscription.SeedCount}}"></label>
-    <label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="{{.Subscription.EpisodesPerSlot}}"></label>
-  </div>
-  <p class="muted">Only not-yet-released episodes move when you save.</p>
-  <button type="submit">Save &amp; reschedule</button>
-</form>
-</article>
 {{template "footer"}}
 {{end}}

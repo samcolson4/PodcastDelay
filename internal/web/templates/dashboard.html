@@ -55,7 +55,6 @@
             {{else}}
             <li><form hx-post="/admin/subscriptions/{{.ID}}/pause" method="post" action="/admin/subscriptions/{{.ID}}/pause"><button type="submit">Pause</button></form></li>
             {{end}}
-            <li><form hx-post="/admin/subscriptions/{{.ID}}/release-next" method="post" action="/admin/subscriptions/{{.ID}}/release-next"><button type="submit">Release next episode now</button></form></li>
             <li><a href="/admin/subscriptions/{{.ID}}/schedule">Schedule</a></li>
             <li><form hx-post="/admin/subscriptions/{{.ID}}/delete" hx-confirm="Delete this feed? This cannot be undone." method="post" action="/admin/subscriptions/{{.ID}}/delete" onsubmit="return window.htmx || confirm('Delete this feed? This cannot be undone.');"><button type="submit" class="danger">Delete</button></form></li>
           </ul>
