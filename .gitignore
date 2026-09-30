@@ -4,3 +4,14 @@
 *.db-wal
 *.db-shm
 admin_password.txt
+
+# Local config / secrets (never commit)
+.env
+.env.*
+!.env.example
+compose.override.yaml
+compose.*.local.yaml
+*.local.yaml
+admin_password.txt
+*.pem
+*.key

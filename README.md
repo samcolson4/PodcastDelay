@@ -13,7 +13,7 @@ design write-up.
 ## Quick start (Docker Compose)
 
 ```bash
-# edit compose.yaml: set PODCASTDELAY_BASE_URL and PODCASTDELAY_ADMIN_USER
+cp .env.example .env   # then set PODCASTDELAY_BASE_URL and PODCASTDELAY_ADMIN_USER
 echo "a-strong-password" > admin_password.txt
 docker compose up -d
 ```

@@ -2,3 +2,6 @@
 *.md
 compose.yaml
 admin_password.txt
+.env
+.env.*
+compose.override.yaml
