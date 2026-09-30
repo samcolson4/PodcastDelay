@@ -9,6 +9,7 @@ type Subscription struct {
 	SourceURL       string
 	TitleOverride   *string
 	CadenceDays     int
+	CadenceMode     string // "fixed" or "original"
 	ReleaseTime     string
 	Timezone        string
 	StartAt         time.Time

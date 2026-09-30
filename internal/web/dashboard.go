@@ -111,12 +111,19 @@ func (s *Server) renderDashboardWithError(w http.ResponseWriter, r *http.Request
 		views = append(views, v)
 	}
 
+	// The start_at field is interpreted in the chosen timezone, so its
+	// default must be "now" on that clock, not UTC.
+	now := time.Now().UTC()
+	if loc, err := time.LoadLocation(s.DefaultTimezone); err == nil {
+		now = now.In(loc)
+	}
+
 	s.render(w, "dashboard.html", map[string]any{
 		"Subscriptions":   views,
 		"Error":           errMsg,
 		"BaseURL":         s.BaseURL,
 		"DefaultTimezone": s.DefaultTimezone,
-		"Now":             time.Now().UTC(),
+		"Now":             now,
 	})
 }
 

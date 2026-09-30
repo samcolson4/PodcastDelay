@@ -161,7 +161,7 @@ CREATE TABLE subscriptions (
   id                  INTEGER PRIMARY KEY,
   token               TEXT NOT NULL UNIQUE,   -- 128-bit random, URL slug
   source_url          TEXT NOT NULL,
-  title_override      TEXT,                   -- default: "<Original> (Delayed)"
+  title_override      TEXT,                   -- default: "<Original> (via PodcastDelay)"
   cadence_days        INTEGER NOT NULL,       -- 7 = weekly
   release_time        TEXT NOT NULL DEFAULT '07:00',
   timezone            TEXT NOT NULL DEFAULT 'Europe/London',

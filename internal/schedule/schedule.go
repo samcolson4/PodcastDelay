@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+// Cadence modes.
+const (
+	// ModeFixed releases one episode (or EpisodesPerSlot) every CadenceDays.
+	ModeFixed = "fixed"
+	// ModeOriginal replays the show's original release gaps: each episode
+	// releases the same amount of time after the last seeded episode as it
+	// was originally published after that episode.
+	ModeOriginal = "original"
+)
+
 // Config describes everything needed to compute the release time of any
 // episode position in a subscription's queue.
 type Config struct {
@@ -30,6 +40,11 @@ type Config struct {
 	// ShiftSeconds is accumulated pause time, added to every
 	// non-seeded release.
 	ShiftSeconds int
+	// Mode is ModeFixed (default when empty) or ModeOriginal.
+	Mode string
+	// PubDates holds each episode's original publish date indexed by
+	// position (nil where unknown). Only used by ModeOriginal.
+	PubDates []*time.Time
 }
 
 // ReleaseAt returns the scheduled release time for the episode at the
@@ -50,6 +65,10 @@ func (c Config) ReleaseAt(position int) (time.Time, error) {
 		// minute each so podcast apps don't have to break a
 		// pubDate tie arbitrarily.
 		return c.StartAt.Add(time.Duration(position) * time.Minute), nil
+	}
+
+	if c.Mode == ModeOriginal {
+		return c.originalReleaseAt(position), nil
 	}
 
 	hour, minute, err := parseReleaseTime(c.ReleaseTime)
@@ -74,6 +93,38 @@ func (c Config) ReleaseAt(position int) (time.Time, error) {
 	releaseAt = releaseAt.Add(time.Duration(c.ShiftSeconds) * time.Second)
 
 	return releaseAt, nil
+}
+
+// originalReleaseAt mirrors the source's own gaps. Episode p releases at
+// StartAt + (pub(p) - pub(ref)), where ref is the last seeded episode (or
+// the first episode when nothing is seeded). Two guards keep the feed sane:
+// an episode with no known date releases with the one before it, and no
+// episode ever releases before the one ahead of it in the queue (a
+// backfilled old episode lands at the tail rather than jumping the line).
+func (c Config) originalReleaseAt(position int) time.Time {
+	ref := c.SeedCount - 1
+	if ref < 0 {
+		ref = 0
+	}
+	var refDate time.Time
+	if ref < len(c.PubDates) && c.PubDates[ref] != nil {
+		refDate = *c.PubDates[ref]
+	}
+
+	// prev is the release time of the episode just before the first
+	// non-seeded one; the loop floors each release at prev+1m.
+	prev := c.StartAt.Add(time.Duration(c.SeedCount-1) * time.Minute)
+	var at time.Time
+	for i := c.SeedCount; i <= position; i++ {
+		at = prev.Add(time.Minute)
+		if !refDate.IsZero() && i < len(c.PubDates) && c.PubDates[i] != nil {
+			if candidate := c.StartAt.Add(c.PubDates[i].Sub(refDate)).Add(time.Duration(c.ShiftSeconds) * time.Second); candidate.After(at) {
+				at = candidate
+			}
+		}
+		prev = at
+	}
+	return at
 }
 
 func parseReleaseTime(s string) (hour, minute int, err error) {

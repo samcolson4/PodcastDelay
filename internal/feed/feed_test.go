@@ -19,9 +19,9 @@ func sampleFeed() Feed {
 
 	return Feed{
 		SelfURL: "https://podcasts.example.com/f/tok123.xml",
-		Title:   "Example Weekly Show (Delayed)",
+		Title:   "Example Weekly Show (via PodcastDelay)",
 		Channel: Channel{
-			Title:       "Example Weekly Show (Delayed)",
+			Title:       "Example Weekly Show (via PodcastDelay)",
 			Description: "A test podcast feed used for PodcastDelay's golden tests.",
 			Link:        "https://example.com/show",
 			Language:    "en-us",

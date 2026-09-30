@@ -14,9 +14,9 @@
   th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #8884; vertical-align: top; }
   th { font-size: 0.8rem; text-transform: uppercase; opacity: 0.7; }
   form.inline { display: inline; }
-  form.card { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin-top: 1rem; max-width: 600px; }
+  form.card { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
   form.card label { display: block; margin-top: 0.6rem; font-size: 0.85rem; }
-  form.card input { width: 100%; padding: 0.35rem; box-sizing: border-box; }
+  form.card input, form.card select { width: 100%; padding: 0.35rem; box-sizing: border-box; }
   .row { display: flex; gap: 1rem; }
   .row > div { flex: 1; }
   button { cursor: pointer; }
@@ -48,7 +48,7 @@
       <td>
         <strong>{{.Title}}</strong><br>
         <span class="muted">{{.SourceURL}}</span><br>
-        <span class="muted">every {{.CadenceDays}}d at {{.ReleaseTime}} ({{.Timezone}}){{if .PausedAt}} — paused{{end}}</span>
+        <span class="muted">{{if eq .CadenceMode "original"}}original cadence{{else}}every {{.CadenceDays}}d at {{.ReleaseTime}} ({{.Timezone}}){{end}}{{if .PausedAt}} — paused{{end}}</span>
       </td>
       <td>
         {{if .IsCaughtUp}}
@@ -84,15 +84,21 @@
   <label>Source RSS URL
     <input type="url" name="source_url" required placeholder="https://example.com/feed.xml">
   </label>
-  <div class="row">
+  <label>Release pace
+    <select name="cadence_mode" id="cadence_mode" onchange="document.getElementById('fixed-opts').style.display = this.value === 'fixed' ? '' : 'none'">
+      <option value="fixed">Fixed cadence: one episode every N days</option>
+      <option value="original">Original cadence: same gaps as the show's real release dates</option>
+    </select>
+  </label>
+  <div class="row" id="fixed-opts">
     <div><label>Cadence (days)<input type="number" name="cadence_days" min="1" value="7"></label></div>
     <div><label>Release time<input type="time" name="release_time" value="07:00"></label></div>
-    <div><label>Timezone<input type="text" name="timezone" value="{{.DefaultTimezone}}"></label></div>
   </div>
   <div class="row">
+    <div><label>Timezone<input type="text" name="timezone" value="{{.DefaultTimezone}}"></label></div>
     <div><label>Start at<input type="datetime-local" name="start_at" value="{{fmtInputTime .Now}}"></label></div>
-    <div><label>Seed count<input type="number" name="seed_count" min="0" value="1"></label></div>
-    <div><label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="1"></label></div>
+    <div><label>Episodes already heard (released straight away)<input type="number" name="seed_count" min="0" value="1"></label></div>
+    <div><label>Episodes per slot (fixed only)<input type="number" name="episodes_per_slot" min="1" value="1"></label></div>
   </div>
   <div class="row">
     <div><label>Title override (optional)<input type="text" name="title_override"></label></div>

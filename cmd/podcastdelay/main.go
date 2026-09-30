@@ -170,9 +170,9 @@ func runHealthcheck(args []string) error {
 // admin UI: `podcastdelay add <url> --every 7d --start tomorrow --seed 2`.
 func runAdd(args []string) error {
 	fs := flag.NewFlagSet("add", flag.ExitOnError)
-	every := fs.String("every", "7d", `cadence, e.g. "7d" for weekly`)
+	every := fs.String("every", "7d", `cadence, e.g. "7d" for weekly, or "original" to mirror the show's real release gaps`)
 	start := fs.String("start", "now", `"now", "tomorrow", or RFC3339 (e.g. 2026-01-06T07:00:00Z)`)
-	seed := fs.Int("seed", 1, "episodes released immediately on day one")
+	seed := fs.Int("seed", 1, "episodes you have already heard, released immediately on day one")
 	perSlot := fs.Int("episodes-per-slot", 1, "episodes released per cadence slot")
 	releaseTime := fs.String("release-time", "07:00", `wall-clock release time, "HH:MM"`)
 	timezone := fs.String("timezone", "", "IANA timezone (defaults to PODCASTDELAY_DEFAULT_TIMEZONE or UTC)")
@@ -185,9 +185,14 @@ func runAdd(args []string) error {
 	}
 	sourceURL := fs.Arg(0)
 
-	cadenceDays, err := parseCadenceDays(*every)
-	if err != nil {
-		return err
+	cadenceMode, cadenceDays := "fixed", 7
+	if *every == "original" {
+		cadenceMode = "original"
+	} else {
+		var err error
+		if cadenceDays, err = parseCadenceDays(*every); err != nil {
+			return err
+		}
 	}
 
 	tz := *timezone
@@ -237,6 +242,7 @@ func runAdd(args []string) error {
 		SourceURL:       sourceURL,
 		TitleOverride:   titleOverride,
 		CadenceDays:     cadenceDays,
+		CadenceMode:     cadenceMode,
 		ReleaseTime:     *releaseTime,
 		Timezone:        tz,
 		StartAt:         startAt,

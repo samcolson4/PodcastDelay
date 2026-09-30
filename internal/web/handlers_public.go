@@ -76,7 +76,7 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 		s.Logger.Error("feed: invalid channel_json", "subscription_id", sub.ID, "error", err)
 	}
 
-	title := meta.Title + " (Delayed)"
+	title := meta.Title + " (via PodcastDelay)"
 	if sub.TitleOverride != nil && *sub.TitleOverride != "" {
 		title = *sub.TitleOverride
 	}

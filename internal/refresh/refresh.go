@@ -29,6 +29,7 @@ type AddParams struct {
 	SourceURL       string
 	TitleOverride   *string
 	CadenceDays     int
+	CadenceMode     string
 	ReleaseTime     string
 	Timezone        string
 	StartAt         time.Time
@@ -108,6 +109,7 @@ func AddSubscription(ctx context.Context, st *store.Store, fetcher *source.Fetch
 			SourceURL:       sourceURL,
 			TitleOverride:   p.TitleOverride,
 			CadenceDays:     p.CadenceDays,
+			CadenceMode:     p.CadenceMode,
 			ReleaseTime:     p.ReleaseTime,
 			Timezone:        p.Timezone,
 			StartAt:         p.StartAt,
@@ -129,6 +131,8 @@ func AddSubscription(ctx context.Context, st *store.Store, fetcher *source.Fetch
 			SeedCount:       p.SeedCount,
 			EpisodesPerSlot: p.EpisodesPerSlot,
 			ShiftSeconds:    0,
+			Mode:            p.CadenceMode,
+			PubDates:        itemPubDates(items),
 		}
 		for i, it := range items {
 			at, err := cfg.ReleaseAt(i)
@@ -312,7 +316,10 @@ func upsertEpisodes(ctx context.Context, q *store.Queries, sub store.Subscriptio
 			EpisodesPerSlot: sub.EpisodesPerSlot,
 			ShiftSeconds:    sub.ShiftSeconds,
 		}
+		cfg.Mode = sub.CadenceMode
+		cfg.PubDates = pubDatesByPosition(existing)
 		for _, it := range newItems {
+			cfg.PubDates = append(cfg.PubDates, it.PubDate)
 			at, err := cfg.ReleaseAt(nextPosition)
 			if err != nil {
 				return err
@@ -366,6 +373,8 @@ func relockAndReschedule(ctx context.Context, q *store.Queries, sub store.Subscr
 		SeedCount:       sub.SeedCount,
 		EpisodesPerSlot: sub.EpisodesPerSlot,
 		ShiftSeconds:    sub.ShiftSeconds,
+		Mode:            sub.CadenceMode,
+		PubDates:        pubDatesByPosition(all),
 	}
 	recomputed, err := schedule.Recompute(cfg, locked)
 	if err != nil {
@@ -382,4 +391,27 @@ func relockAndReschedule(ctx context.Context, q *store.Queries, sub store.Subscr
 		}
 	}
 	return nil
+}
+
+func itemPubDates(items []source.Item) []*time.Time {
+	out := make([]*time.Time, len(items))
+	for i, it := range items {
+		out[i] = it.PubDate
+	}
+	return out
+}
+
+// pubDatesByPosition indexes original publish dates by episode position.
+func pubDatesByPosition(episodes []store.Episode) []*time.Time {
+	max := -1
+	for _, e := range episodes {
+		if e.Position > max {
+			max = e.Position
+		}
+	}
+	out := make([]*time.Time, max+1)
+	for _, e := range episodes {
+		out[e.Position] = e.OriginalPubDate
+	}
+	return out
 }

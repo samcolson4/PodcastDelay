@@ -17,9 +17,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # CA certs for HTTPS fetches of source feeds; scratch/distroless has none.
 RUN cp /etc/ssl/certs/ca-certificates.crt /out/ca-certificates.crt
 
+# Pre-create the data dir so a fresh volume inherits nonroot ownership.
+RUN mkdir /out/data
+
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /out/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /out/podcastdelay /podcastdelay
+COPY --from=builder --chown=65532:65532 /out/data /data
 
 ENV PODCASTDELAY_DATA_DIR=/data
 ENV PODCASTDELAY_ADDR=:8080

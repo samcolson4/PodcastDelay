@@ -18,6 +18,7 @@ type NewSubscription struct {
 	SourceURL       string
 	TitleOverride   *string
 	CadenceDays     int
+	CadenceMode     string
 	ReleaseTime     string
 	Timezone        string
 	StartAt         time.Time
@@ -33,11 +34,12 @@ func (q *Queries) CreateSubscription(ctx context.Context, n NewSubscription) (Su
 		INSERT INTO subscriptions (
 			token, source_url, title_override, cadence_days, release_time,
 			timezone, start_at, seed_count, episodes_per_slot, shift_seconds,
-			max_feed_items, channel_json, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+			max_feed_items, channel_json, created_at, updated_at, cadence_mode
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
 		n.Token, n.SourceURL, nullString(n.TitleOverride), n.CadenceDays, n.ReleaseTime,
 		n.Timezone, toDBTime(n.StartAt), n.SeedCount, n.EpisodesPerSlot,
 		nullIntFromIntPtr(n.MaxFeedItems), n.ChannelJSON, toDBTime(now), toDBTime(now),
+		modeOrFixed(n.CadenceMode),
 	)
 	if err != nil {
 		return Subscription{}, fmt.Errorf("store: create subscription: %w", err)
@@ -53,7 +55,7 @@ const subscriptionColumns = `
 	id, token, source_url, title_override, cadence_days, release_time,
 	timezone, start_at, seed_count, episodes_per_slot, shift_seconds,
 	paused_at, max_feed_items, channel_json, etag, last_modified,
-	last_fetched_at, last_fetch_status, created_at, updated_at`
+	last_fetched_at, last_fetch_status, created_at, updated_at, cadence_mode`
 
 func scanSubscription(row interface {
 	Scan(dest ...any) error
@@ -68,7 +70,7 @@ func scanSubscription(row interface {
 		&s.ID, &s.Token, &s.SourceURL, &titleOverride, &s.CadenceDays, &s.ReleaseTime,
 		&s.Timezone, &startAt, &s.SeedCount, &s.EpisodesPerSlot, &s.ShiftSeconds,
 		&pausedAt, &maxFeedItems, &s.ChannelJSON, &etag, &lastModified,
-		&lastFetchedAt, &lastFetchStatus, &createdAt, &updatedAt,
+		&lastFetchedAt, &lastFetchStatus, &createdAt, &updatedAt, &s.CadenceMode,
 	)
 	if err != nil {
 		return Subscription{}, err
@@ -167,6 +169,7 @@ func (q *Queries) ListDueForRefresh(ctx context.Context, cutoff time.Time) ([]Su
 type SubscriptionPatch struct {
 	TitleOverride   *string
 	CadenceDays     *int
+	CadenceMode     *string
 	ReleaseTime     *string
 	Timezone        *string
 	StartAt         *time.Time
@@ -186,6 +189,9 @@ func (q *Queries) PatchSubscription(ctx context.Context, id int64, p Subscriptio
 	}
 	if p.CadenceDays != nil {
 		current.CadenceDays = *p.CadenceDays
+	}
+	if p.CadenceMode != nil {
+		current.CadenceMode = modeOrFixed(*p.CadenceMode)
 	}
 	if p.ReleaseTime != nil {
 		current.ReleaseTime = *p.ReleaseTime
@@ -211,11 +217,11 @@ func (q *Queries) PatchSubscription(ctx context.Context, id int64, p Subscriptio
 		UPDATE subscriptions SET
 			title_override = ?, cadence_days = ?, release_time = ?, timezone = ?,
 			start_at = ?, seed_count = ?, episodes_per_slot = ?, max_feed_items = ?,
-			updated_at = ?
+			updated_at = ?, cadence_mode = ?
 		WHERE id = ?`,
 		nullString(current.TitleOverride), current.CadenceDays, current.ReleaseTime, current.Timezone,
 		toDBTime(current.StartAt), current.SeedCount, current.EpisodesPerSlot, nullIntFromIntPtr(current.MaxFeedItems),
-		toDBTime(now), id,
+		toDBTime(now), current.CadenceMode, id,
 	)
 	if err != nil {
 		return Subscription{}, fmt.Errorf("store: patch subscription %d: %w", id, err)
@@ -310,4 +316,11 @@ func (q *Queries) UpdateChannelJSON(ctx context.Context, id int64, channelJSON s
 		return fmt.Errorf("store: update channel json %d: %w", id, err)
 	}
 	return nil
+}
+
+func modeOrFixed(m string) string {
+	if m == "original" {
+		return "original"
+	}
+	return "fixed"
 }

@@ -265,3 +265,31 @@ func TestReleaseAt_NegativePosition(t *testing.T) {
 		t.Error("expected error for negative position, got nil")
 	}
 }
+
+func TestReleaseAt_OriginalCadence(t *testing.T) {
+	day := func(d int) *time.Time { x := time.Date(2020, 1, d, 12, 0, 0, 0, time.UTC); return &x }
+	start := time.Date(2026, 10, 1, 7, 0, 0, 0, time.UTC)
+	// gaps: ep0->ep1 = 3d, ep1->ep2 = 10d, ep3 backdated, ep4 undated
+	pubs := []*time.Time{day(1), day(4), day(14), day(2), nil}
+	cfg := Config{StartAt: start, Location: time.UTC, SeedCount: 2, EpisodesPerSlot: 1, Mode: ModeOriginal, PubDates: pubs}
+
+	cases := []struct {
+		pos  int
+		want time.Time
+	}{
+		{0, start},
+		{1, start.Add(time.Minute)},
+		{2, start.AddDate(0, 0, 10)},                      // 10d after ep1
+		{3, start.AddDate(0, 0, 10).Add(time.Minute)},     // backdated: queues behind ep2
+		{4, start.AddDate(0, 0, 10).Add(2 * time.Minute)}, // undated: rides behind ep3
+	}
+	for _, c := range cases {
+		got, err := cfg.ReleaseAt(c.pos)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.Equal(c.want) {
+			t.Errorf("pos %d: got %v want %v", c.pos, got, c.want)
+		}
+	}
+}

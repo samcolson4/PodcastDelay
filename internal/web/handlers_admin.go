@@ -32,6 +32,11 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		s.renderDashboardWithError(w, r, "cadence_days must be a positive integer")
 		return
 	}
+	cadenceMode := defaultStr(r.FormValue("cadence_mode"), "fixed")
+	if cadenceMode != "fixed" && cadenceMode != "original" {
+		s.renderDashboardWithError(w, r, "cadence_mode must be fixed or original")
+		return
+	}
 	seedCount, err := strconv.Atoi(defaultStr(r.FormValue("seed_count"), "1"))
 	if err != nil || seedCount < 0 {
 		s.renderDashboardWithError(w, r, "seed_count must be a non-negative integer")
@@ -78,6 +83,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		SourceURL:       sourceURL,
 		TitleOverride:   titleOverride,
 		CadenceDays:     cadenceDays,
+		CadenceMode:     cadenceMode,
 		ReleaseTime:     releaseTime,
 		Timezone:        timezone,
 		StartAt:         startAt,
@@ -114,6 +120,13 @@ func (s *Server) handlePatchSubscription(w http.ResponseWriter, r *http.Request)
 		}
 		patch.CadenceDays = &n
 	}
+	if v := r.FormValue("cadence_mode"); v != "" {
+		if v != "fixed" && v != "original" {
+			http.Error(w, "invalid cadence_mode", http.StatusBadRequest)
+			return
+		}
+		patch.CadenceMode = &v
+	}
 	if v := r.FormValue("seed_count"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
@@ -144,7 +157,19 @@ func (s *Server) handlePatchSubscription(w http.ResponseWriter, r *http.Request)
 		patch.TitleOverride = &v
 	}
 	if v := r.FormValue("start_at"); v != "" {
-		parsed, err := time.Parse("2006-01-02T15:04", v)
+		// Interpret in the (possibly just-changed) subscription timezone,
+		// matching how the add form treats start_at.
+		tz := s.DefaultTimezone
+		if patch.Timezone != nil {
+			tz = *patch.Timezone
+		} else if cur, err := s.Store.GetSubscription(r.Context(), id); err == nil {
+			tz = cur.Timezone
+		}
+		loc, err := time.LoadLocation(tz)
+		if err != nil {
+			loc = time.UTC
+		}
+		parsed, err := time.ParseInLocation("2006-01-02T15:04", v, loc)
 		if err != nil {
 			http.Error(w, "invalid start_at", http.StatusBadRequest)
 			return
@@ -282,6 +307,8 @@ func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 		SeedCount:       sub.SeedCount,
 		EpisodesPerSlot: sub.EpisodesPerSlot,
 		ShiftSeconds:    sub.ShiftSeconds,
+		Mode:            sub.CadenceMode,
+		PubDates:        pubDates(episodes),
 	}
 
 	type row struct {
@@ -318,4 +345,19 @@ func defaultStr(v, def string) string {
 		return def
 	}
 	return v
+}
+
+// pubDates indexes original publish dates by episode position.
+func pubDates(episodes []store.Episode) []*time.Time {
+	max := -1
+	for _, e := range episodes {
+		if e.Position > max {
+			max = e.Position
+		}
+	}
+	out := make([]*time.Time, max+1)
+	for _, e := range episodes {
+		out[e.Position] = e.OriginalPubDate
+	}
+	return out
 }

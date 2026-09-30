@@ -3,7 +3,7 @@
   xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
   xmlns:atom="http://www.w3.org/2005/Atom">
 <channel>
-  <title>Example Weekly Show (Delayed)</title>
+  <title>Example Weekly Show (via PodcastDelay)</title>
   <link>https://example.com/show</link>
   <atom:link href="https://podcasts.example.com/f/tok123.xml" rel="self" type="application/rss+xml"/>
   <description><![CDATA[A test podcast feed used for PodcastDelay's golden tests.]]></description>
@@ -16,7 +16,7 @@
   <itunes:image href="https://example.com/art.jpg"/>
   <image>
     <url>https://example.com/art.jpg</url>
-    <title>Example Weekly Show (Delayed)</title>
+    <title>Example Weekly Show (via PodcastDelay)</title>
     <link>https://example.com/show</link>
   </image>
   <itunes:owner>
