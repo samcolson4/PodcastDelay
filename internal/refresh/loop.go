@@ -28,11 +28,7 @@ func Reschedule(ctx context.Context, st *store.Store, subscriptionID int64) erro
 		if err != nil {
 			return err
 		}
-		loc, err := time.LoadLocation(sub.Timezone)
-		if err != nil {
-			return err
-		}
-		return relockAndReschedule(ctx, q, sub, time.Now().UTC(), loc)
+		return relockAndReschedule(ctx, q, sub, time.Now().UTC())
 	})
 }
 
