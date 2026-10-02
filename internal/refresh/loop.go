@@ -63,7 +63,7 @@ func tick(ctx context.Context, st *store.Store, fetcher *source.Fetcher, default
 	now := time.Now().UTC()
 	for _, sub := range subs {
 		interval := defaultPollInterval
-		if sub.LastFetchStatus != nil && strings.HasPrefix(*sub.LastFetchStatus, "error:") {
+		if sub.LastFetchStatus != nil && strings.HasPrefix(*sub.LastFetchStatus, statusErrorPrefix) {
 			interval = failureBackoff
 		}
 		if sub.LastFetchedAt != nil && now.Sub(*sub.LastFetchedAt) < interval {

@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -37,6 +38,17 @@ type AddParams struct {
 	EpisodesPerSlot int
 	MaxFeedItems    *int
 }
+
+// Values recorded in subscriptions.last_fetch_status. The refresh loop
+// keys its failure backoff off statusErrorPrefix, so the vocabulary lives
+// here rather than being spelled out at each use.
+const (
+	statusOK          = "ok"
+	statusNotModified = "not_modified"
+	statusErrorPrefix = "error: "
+)
+
+func errorStatus(err error) string { return statusErrorPrefix + err.Error() }
 
 func newToken() (string, error) {
 	b := make([]byte, 16) // 128 bits, per docs §4
@@ -182,7 +194,7 @@ func AddSubscription(ctx context.Context, st *store.Store, fetcher *source.Fetch
 			}
 		}
 
-		return q.UpdateFetchState(ctx, sub.ID, nilIfEmpty(result.ETag), nilIfEmpty(result.LastModified), time.Now().UTC(), "ok")
+		return q.UpdateFetchState(ctx, sub.ID, nilIfEmpty(result.ETag), nilIfEmpty(result.LastModified), time.Now().UTC(), statusOK)
 	})
 	if err != nil {
 		return store.Subscription{}, err
@@ -266,16 +278,16 @@ func Poll(ctx context.Context, st *store.Store, fetcher *source.Fetcher, sub sto
 	result, err := fetcher.Fetch(ctx, sub.SourceURL, etag, lastModified)
 	if err != nil {
 		logger.Warn("refresh: fetch failed", "subscription_id", sub.ID, "error", err)
-		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, "error: "+err.Error())
+		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, errorStatus(err))
 	}
 
 	if result.NotModified {
-		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, "not_modified")
+		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, statusNotModified)
 	}
 
 	if _, err := time.LoadLocation(sub.Timezone); err != nil {
 		logger.Error("refresh: invalid stored timezone", "subscription_id", sub.ID, "timezone", sub.Timezone, "error", err)
-		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, "error: invalid timezone")
+		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, errorStatus(errors.New("invalid timezone")))
 	}
 
 	return st.WithTx(ctx, func(q *store.Queries) error {
@@ -303,7 +315,7 @@ func Poll(ctx context.Context, st *store.Store, fetcher *source.Fetcher, sub sto
 			return err
 		}
 
-		return q.UpdateFetchState(ctx, sub.ID, nilIfEmpty(result.ETag), nilIfEmpty(result.LastModified), now, "ok")
+		return q.UpdateFetchState(ctx, sub.ID, nilIfEmpty(result.ETag), nilIfEmpty(result.LastModified), now, statusOK)
 	})
 }
 
