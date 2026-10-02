@@ -72,14 +72,14 @@
     </select>
   </label>
   <div class="row" id="fixed-opts">
-    <div><label>Cadence (days)<input type="number" name="cadence_days" min="1" value="7"></label></div>
-    <div><label>Release time<input type="time" name="release_time" value="07:00"></label></div>
-    <div><label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="1"></label></div>
+    <div><label>Cadence (days)<input type="number" name="cadence_days" min="1" value="{{.Defaults.CadenceDays}}"></label></div>
+    <div><label>Release time<input type="time" name="release_time" value="{{.Defaults.ReleaseTime}}"></label></div>
+    <div><label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="{{.Defaults.EpisodesPerSlot}}"></label></div>
   </div>
   <div class="row">
     <div><label>Timezone<input type="text" name="timezone" value="{{.DefaultTimezone}}"></label></div>
     <div><label>Start at<input type="datetime-local" name="start_at" value="{{inputTime .Now .DefaultTimezone}}"></label></div>
-    <div><label>Episodes already heard (released straight away)<input type="number" name="seed_count" min="0" value="1"></label></div>
+    <div><label>Episodes already heard (released straight away)<input type="number" name="seed_count" min="0" value="{{.Defaults.SeedCount}}"></label></div>
   </div>
   <div class="row">
     <div><label>Title override (optional)<input type="text" name="title_override"></label></div>

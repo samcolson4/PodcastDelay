@@ -11,6 +11,16 @@ import (
 	"github.com/samcolson4/podcastdelay/internal/store"
 )
 
+// Defaults for a new subscription. The add form is pre-filled from these
+// and handleCreateSubscription falls back to them for blank fields, so the
+// two can't drift apart.
+const (
+	defaultCadenceDays     = 7
+	defaultSeedCount       = 1
+	defaultEpisodesPerSlot = 1
+	defaultReleaseTime     = "07:00"
+)
+
 const displayTimeLayout = "2 Jan 2006 15:04"
 
 var templateFuncs = template.FuncMap{
@@ -38,7 +48,7 @@ var templateFuncs = template.FuncMap{
 		if loc, err := time.LoadLocation(tz); err == nil {
 			t = t.In(loc)
 		}
-		return t.Format("2006-01-02T15:04")
+		return t.Format(startAtLayout)
 	},
 }
 
@@ -173,6 +183,12 @@ func (s *Server) renderDashboardWithError(w http.ResponseWriter, r *http.Request
 		"BaseURL":         s.BaseURL,
 		"DefaultTimezone": s.DefaultTimezone,
 		"Now":             time.Now().UTC(),
+		"Defaults": map[string]any{
+			"CadenceDays":     defaultCadenceDays,
+			"SeedCount":       defaultSeedCount,
+			"EpisodesPerSlot": defaultEpisodesPerSlot,
+			"ReleaseTime":     defaultReleaseTime,
+		},
 	})
 }
 

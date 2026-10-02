@@ -106,7 +106,7 @@ func (h *testHarness) addSubscription(t *testing.T) store.Subscription {
 		"cadence_days":      {"7"},
 		"release_time":      {"07:00"},
 		"timezone":          {"UTC"},
-		"start_at":          {time.Now().Add(-time.Hour).Format("2006-01-02T15:04")},
+		"start_at":          {time.Now().UTC().Add(-time.Hour).Format(startAtLayout)},
 		"seed_count":        {"1"},
 		"episodes_per_slot": {"1"},
 	}
@@ -286,6 +286,67 @@ func TestPatchSubscription_ReschedulesUnlockedOnly(t *testing.T) {
 	}
 	if after[1].ScheduledAt.Equal(before[1].ScheduledAt) {
 		t.Error("expected unlocked future episode's scheduled_at to change after cadence edit")
+	}
+}
+
+func TestCreateSubscription_RejectsBadFieldsWithoutCreating(t *testing.T) {
+	h := newTestHarness(t)
+
+	for _, tc := range []struct {
+		name  string
+		field string
+		value string
+	}{
+		{name: "cadence", field: "cadence_days", value: "0"},
+		{name: "release time", field: "release_time", value: "7am"},
+		{name: "cadence mode", field: "cadence_mode", value: "weekly"},
+		{name: "timezone", field: "timezone", value: "Mars/Olympus"},
+		{name: "seed count", field: "seed_count", value: "-1"},
+	} {
+		form := url.Values{"source_url": {h.feedSrv.URL}, tc.field: {tc.value}}
+		resp := h.adminRequest(t, http.MethodPost, "/admin/subscriptions", form)
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if !strings.Contains(string(body), tc.field) {
+			t.Errorf("%s: expected the form error to name %q, got:\n%s", tc.name, tc.field, body)
+		}
+	}
+
+	subs, err := h.store.ListSubscriptions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 0 {
+		t.Errorf("expected no subscriptions to be created, got %d", len(subs))
+	}
+}
+
+func TestPatchSubscription_RejectsBadFields(t *testing.T) {
+	h := newTestHarness(t)
+	sub := h.addSubscription(t)
+	id := strconv.FormatInt(sub.ID, 10)
+
+	for _, form := range []url.Values{
+		{"cadence_days": {"0"}},
+		{"episodes_per_slot": {"nope"}},
+		{"release_time": {"25:00"}},
+		{"cadence_mode": {"weekly"}},
+		{"timezone": {"Mars/Olympus"}},
+		{"start_at": {"yesterday"}},
+	} {
+		resp := h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/edit", form)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("patch %v: expected 400, got %d", form, resp.StatusCode)
+		}
+	}
+
+	unchanged, err := h.store.GetSubscription(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.CadenceDays != sub.CadenceDays || unchanged.ReleaseTime != sub.ReleaseTime {
+		t.Errorf("rejected patch still changed the subscription: %+v", unchanged)
 	}
 }
 

@@ -35,6 +35,12 @@
 
 <h2>Edit schedule</h2>
 <form class="card" method="post" action="/admin/subscriptions/{{.Subscription.ID}}/edit">
+  <label>Release pace
+    <select name="cadence_mode">
+      <option value="fixed" {{if ne .Subscription.CadenceMode "original"}}selected{{end}}>Fixed cadence: one episode every N days</option>
+      <option value="original" {{if eq .Subscription.CadenceMode "original"}}selected{{end}}>Original cadence: same gaps as the show's real release dates</option>
+    </select>
+  </label>
   <div class="row">
     <div><label>Cadence (days)<input type="number" name="cadence_days" min="1" value="{{.Subscription.CadenceDays}}"></label></div>
     <div><label>Release time<input type="time" name="release_time" value="{{.Subscription.ReleaseTime}}"></label></div>
