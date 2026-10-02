@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mmcdole/gofeed"
@@ -86,6 +88,10 @@ func (f *Fetcher) Fetch(ctx context.Context, sourceURL, etag, lastModified strin
 		req.Header.Set("If-Modified-Since", lastModified)
 	}
 
+	// CheckRedirect is per-request state (it closes over
+	// permanentRedirectURL), so hang it off a shallow copy rather than
+	// mutating the shared client. The copy keeps the same Transport, so
+	// connection pooling is unaffected.
 	var permanentRedirectURL string
 	client := *f.Client
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -137,7 +143,8 @@ func (f *Fetcher) Fetch(ctx context.Context, sourceURL, etag, lastModified strin
 	return result, nil
 }
 
-type parsed struct {
+// Parsed is the normalized content of one feed document.
+type Parsed struct {
 	Channel Channel
 	Items   []Item
 }
@@ -145,11 +152,11 @@ type parsed struct {
 // Parse turns raw feed bytes into normalized Channel/Items. It uses
 // gofeed rather than hand-rolled XML because real-world feeds are
 // malformed in inventive ways.
-func Parse(body []byte) (parsed, error) {
+func Parse(body []byte) (Parsed, error) {
 	fp := gofeed.NewParser()
 	feed, err := fp.ParseString(string(body))
 	if err != nil {
-		return parsed{}, fmt.Errorf("gofeed parse: %w", err)
+		return Parsed{}, fmt.Errorf("gofeed parse: %w", err)
 	}
 
 	ch := Channel{
@@ -163,7 +170,9 @@ func Parse(body []byte) (parsed, error) {
 	}
 	if feed.ITunesExt != nil {
 		ch.Author = feed.ITunesExt.Author
-		ch.Explicit = feed.ITunesExt.Explicit == "true" || feed.ITunesExt.Explicit == "yes"
+		if explicit := itunesExplicit(feed.ITunesExt.Explicit); explicit != nil {
+			ch.Explicit = *explicit
+		}
 		ch.ItunesType = feed.ITunesExt.Type
 		if feed.ITunesExt.Owner != nil {
 			ch.Owner = feed.ITunesExt.Owner.Name
@@ -173,9 +182,7 @@ func Parse(body []byte) (parsed, error) {
 			ch.ImageURL = feed.ITunesExt.Image
 		}
 	}
-	for _, c := range feed.Categories {
-		ch.Categories = append(ch.Categories, c)
-	}
+	ch.Categories = append(ch.Categories, feed.Categories...)
 
 	items := make([]Item, 0, len(feed.Items))
 	seenGUIDs := make(map[string]bool, len(feed.Items))
@@ -194,7 +201,7 @@ func Parse(body []byte) (parsed, error) {
 			continue
 		}
 
-		if fi.Enclosures == nil || len(fi.Enclosures) == 0 {
+		if len(fi.Enclosures) == 0 {
 			// Text-only post, no audio: skip, caller may log it.
 			continue
 		}
@@ -209,34 +216,13 @@ func Parse(body []byte) (parsed, error) {
 			EnclosureURL:  enc.URL,
 			EnclosureType: enc.Type,
 		}
-		if enc.Length != "" {
-			var l int64
-			if _, err := fmt.Sscanf(enc.Length, "%d", &l); err == nil {
-				it.EnclosureLength = &l
-			}
-		}
+		it.EnclosureLength = parseInt64(enc.Length)
 		if fi.ITunesExt != nil {
 			it.Duration = fi.ITunesExt.Duration
 			it.EpisodeType = fi.ITunesExt.EpisodeType
-			if fi.ITunesExt.Explicit == "true" || fi.ITunesExt.Explicit == "yes" {
-				v := true
-				it.Explicit = &v
-			} else if fi.ITunesExt.Explicit == "false" || fi.ITunesExt.Explicit == "no" {
-				v := false
-				it.Explicit = &v
-			}
-			if fi.ITunesExt.Episode != "" {
-				var n int
-				if _, err := fmt.Sscanf(fi.ITunesExt.Episode, "%d", &n); err == nil {
-					it.EpisodeNumber = &n
-				}
-			}
-			if fi.ITunesExt.Season != "" {
-				var n int
-				if _, err := fmt.Sscanf(fi.ITunesExt.Season, "%d", &n); err == nil {
-					it.Season = &n
-				}
-			}
+			it.Explicit = itunesExplicit(fi.ITunesExt.Explicit)
+			it.EpisodeNumber = parseInt(fi.ITunesExt.Episode)
+			it.Season = parseInt(fi.ITunesExt.Season)
 			if fi.ITunesExt.Image != "" {
 				it.ImageURL = fi.ITunesExt.Image
 			}
@@ -249,7 +235,7 @@ func Parse(body []byte) (parsed, error) {
 		seenGUIDs[guid] = true
 	}
 
-	return parsed{Channel: ch, Items: items}, nil
+	return Parsed{Channel: ch, Items: items}, nil
 }
 
 func descriptionOf(fi *gofeed.Item) string {
@@ -260,4 +246,36 @@ func descriptionOf(fi *gofeed.Item) string {
 		return fi.Content
 	}
 	return ""
+}
+
+// itunesExplicit reads an <itunes:explicit> value, returning nil when it
+// is absent or not one of the four spellings publishers actually use.
+func itunesExplicit(s string) *bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "true", "yes":
+		v := true
+		return &v
+	case "false", "no":
+		v := false
+		return &v
+	}
+	return nil
+}
+
+// parseInt and parseInt64 return nil for the blank or non-numeric values
+// real feeds put in numeric fields, rather than failing the whole parse.
+func parseInt(s string) *int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return nil
+	}
+	return &n
+}
+
+func parseInt64(s string) *int64 {
+	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &n
 }
