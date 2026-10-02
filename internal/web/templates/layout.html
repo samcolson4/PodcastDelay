@@ -1,0 +1,26 @@
+{{/* Styles shared by every admin page. Both pages are plain
+     server-rendered HTML with no build step, so this is the whole of the
+     "design system". */}}
+{{define "styles"}}
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; line-height: 1.4; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2.5rem; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #8884; vertical-align: top; }
+  th { font-size: 0.8rem; text-transform: uppercase; opacity: 0.7; }
+  button { cursor: pointer; }
+  form.inline { display: inline; }
+  form.card { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
+  form.card label { display: block; margin-top: 0.6rem; font-size: 0.85rem; }
+  form.card input, form.card select { width: 100%; padding: 0.35rem; box-sizing: border-box; }
+  .row { display: flex; gap: 1rem; }
+  .row > div { flex: 1; }
+  .muted { opacity: 0.65; font-size: 0.85rem; }
+  .error { color: #c00; margin-top: 1rem; }
+  .feed-url { font-family: ui-monospace, monospace; font-size: 0.8rem; word-break: break-all; }
+  .actions button { margin: 0 0.15rem 0.15rem 0; }
+  .excluded { text-decoration: line-through; opacity: 0.5; }
+</style>
+{{end}}
