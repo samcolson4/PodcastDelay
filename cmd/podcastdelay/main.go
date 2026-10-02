@@ -14,7 +14,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 
 	"github.com/samcolson4/podcastdelay/internal/config"
 	"github.com/samcolson4/podcastdelay/internal/refresh"
+	"github.com/samcolson4/podcastdelay/internal/schedule"
 	"github.com/samcolson4/podcastdelay/internal/source"
 	"github.com/samcolson4/podcastdelay/internal/store"
 	"github.com/samcolson4/podcastdelay/internal/web"
@@ -56,7 +58,7 @@ func main() {
 }
 
 func isFlag(s string) bool {
-	return len(s) > 0 && s[0] == '-'
+	return strings.HasPrefix(s, "-")
 }
 
 func runServe(args []string) error {
@@ -65,6 +67,9 @@ func runServe(args []string) error {
 
 	cfg, err := config.Load()
 	if err != nil {
+		return err
+	}
+	if err := cfg.RequireServe(); err != nil {
 		return err
 	}
 
@@ -78,7 +83,7 @@ func runServe(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	st, err := store.Open(ctx, filepath.Join(cfg.DataDir, "podcastdelay.db"))
+	st, err := store.Open(ctx, cfg.DBPath())
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
@@ -153,10 +158,11 @@ func runHealthcheck(args []string) error {
 	fs := flag.NewFlagSet("healthcheck", flag.ExitOnError)
 	fs.Parse(args)
 
-	addr := os.Getenv("PODCASTDELAY_ADDR")
-	if addr == "" {
-		addr = ":8080"
+	cfg, err := config.Load()
+	if err != nil {
+		return err
 	}
+	addr := cfg.Addr
 	url := "http://localhost" + addr + "/healthz"
 	if addr[0] != ':' {
 		url = "http://" + addr + "/healthz"
@@ -193,22 +199,21 @@ func runAdd(args []string) error {
 	}
 	sourceURL := fs.Arg(0)
 
-	cadenceMode, cadenceDays := "fixed", 7
-	if *every == "original" {
-		cadenceMode = "original"
-	} else {
-		var err error
-		if cadenceDays, err = parseCadenceDays(*every); err != nil {
-			return err
-		}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	cadenceMode, cadenceDays := schedule.ModeFixed, 7
+	if *every == schedule.ModeOriginal {
+		cadenceMode = schedule.ModeOriginal
+	} else if cadenceDays, err = parseCadenceDays(*every); err != nil {
+		return err
 	}
 
 	tz := *timezone
 	if tz == "" {
-		tz = os.Getenv("PODCASTDELAY_DEFAULT_TIMEZONE")
-	}
-	if tz == "" {
-		tz = "UTC"
+		tz = cfg.DefaultTimezone
 	}
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
@@ -220,18 +225,14 @@ func runAdd(args []string) error {
 		return err
 	}
 
-	dataDir := os.Getenv("PODCASTDELAY_DATA_DIR")
-	if dataDir == "" {
-		dataDir = "/data"
-	}
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	st, err := store.Open(ctx, filepath.Join(dataDir, "podcastdelay.db"))
+	st, err := store.Open(ctx, cfg.DBPath())
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
@@ -262,20 +263,20 @@ func runAdd(args []string) error {
 		return fmt.Errorf("add subscription: %w", err)
 	}
 
-	baseURL := os.Getenv("PODCASTDELAY_BASE_URL")
-	fmt.Printf("Added. Feed URL: %s/f/%s.xml\n", baseURL, sub.Token)
+	fmt.Printf("Added. Feed URL: %s/f/%s.xml\n", cfg.BaseURL, sub.Token)
 	return nil
 }
 
 func parseCadenceDays(every string) (int, error) {
-	if len(every) == 0 {
+	if every == "" {
 		return 0, errors.New("--every must not be empty")
 	}
-	if every[len(every)-1] == 'd' {
-		var n int
-		if _, err := fmt.Sscanf(every, "%dd", &n); err == nil && n > 0 {
+	if days, ok := strings.CutSuffix(every, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err == nil && n > 0 {
 			return n, nil
 		}
+		return 0, fmt.Errorf("invalid --every %q (want e.g. \"7d\")", every)
 	}
 	d, err := time.ParseDuration(every)
 	if err != nil {
