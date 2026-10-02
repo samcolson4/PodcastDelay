@@ -22,8 +22,8 @@
 </head>
 <body>
 <p><a href="/admin">&larr; back to feeds</a></p>
-<h1>{{.Subscription.SourceURL}}</h1>
-<p class="muted">Every {{.Subscription.CadenceDays}} day(s) at {{.Subscription.ReleaseTime}} ({{.Subscription.Timezone}}), seed {{.Subscription.SeedCount}}, {{.Subscription.EpisodesPerSlot}}/slot.</p>
+<h1>{{.Title}}</h1>
+<p class="muted">{{.Cadence}}, seed {{.Subscription.SeedCount}}.<br>{{.Subscription.SourceURL}}</p>
 
 <table>
   <thead><tr><th>#</th><th>Title</th><th>Release</th><th>Locked</th><th></th></tr></thead>

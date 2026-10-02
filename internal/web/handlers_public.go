@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"net/http"
@@ -11,6 +10,10 @@ import (
 	"github.com/samcolson4/podcastdelay/internal/feed"
 	"github.com/samcolson4/podcastdelay/internal/store"
 )
+
+// viaSuffix marks the delayed copy in podcast apps so it is obvious which
+// of the two feeds is which when both are subscribed.
+const viaSuffix = " (via PodcastDelay)"
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	if err := s.Store.Ping(r.Context()); err != nil {
@@ -71,15 +74,8 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var meta store.ChannelMeta
-	if err := json.Unmarshal([]byte(sub.ChannelJSON), &meta); err != nil {
-		s.Logger.Error("feed: invalid channel_json", "subscription_id", sub.ID, "error", err)
-	}
-
-	title := meta.Title + " (via PodcastDelay)"
-	if sub.TitleOverride != nil && *sub.TitleOverride != "" {
-		title = *sub.TitleOverride
-	}
+	meta := s.channelMeta(sub)
+	title := titleOverrideOr(sub, meta.Title+viaSuffix)
 
 	items := make([]feed.Item, 0, len(episodes))
 	for _, e := range episodes {
@@ -103,21 +99,9 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f := feed.Feed{
-		SelfURL: s.BaseURL + "/f/" + sub.Token + ".xml",
-		Title:   title,
-		Channel: feed.Channel{
-			Title:       title,
-			Description: meta.Description,
-			Link:        meta.Link,
-			Language:    meta.Language,
-			Author:      meta.Author,
-			ImageURL:    meta.ImageURL,
-			Explicit:    meta.Explicit,
-			ItunesType:  meta.ItunesType,
-			Categories:  meta.Categories,
-			Owner:       meta.Owner,
-			OwnerEmail:  meta.OwnerEmail,
-		},
+		SelfURL:      s.BaseURL + "/f/" + sub.Token + ".xml",
+		Title:        title,
+		Channel:      feedChannel(title, meta),
 		Items:        items,
 		LastBuild:    lastBuild,
 		GeneratorTag: "PodcastDelay",
@@ -127,6 +111,25 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", etag)
 	if err := feed.Render(w, f); err != nil {
 		s.Logger.Error("feed: render failed", "subscription_id", sub.ID, "error", err)
+	}
+}
+
+// feedChannel maps the cached show metadata onto the renderer's own
+// channel type, with the delayed feed's title substituted for the
+// publisher's.
+func feedChannel(title string, meta store.ChannelMeta) feed.Channel {
+	return feed.Channel{
+		Title:       title,
+		Description: meta.Description,
+		Link:        meta.Link,
+		Language:    meta.Language,
+		Author:      meta.Author,
+		ImageURL:    meta.ImageURL,
+		Explicit:    meta.Explicit,
+		ItunesType:  meta.ItunesType,
+		Categories:  meta.Categories,
+		Owner:       meta.Owner,
+		OwnerEmail:  meta.OwnerEmail,
 	}
 }
 

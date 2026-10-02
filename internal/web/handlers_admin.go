@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/samcolson4/podcastdelay/internal/refresh"
-	"github.com/samcolson4/podcastdelay/internal/schedule"
 	"github.com/samcolson4/podcastdelay/internal/store"
 )
 
@@ -294,21 +293,11 @@ func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	loc, err := time.LoadLocation(sub.Timezone)
+	cfg, err := refresh.ScheduleConfigFor(sub, refresh.PubDatesByPosition(episodes))
 	if err != nil {
-		http.Error(w, "invalid timezone", http.StatusInternalServerError)
+		s.Logger.Error("admin: schedule preview failed", "id", id, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
-	}
-	cfg := schedule.Config{
-		StartAt:         sub.StartAt,
-		CadenceDays:     sub.CadenceDays,
-		ReleaseTime:     sub.ReleaseTime,
-		Location:        loc,
-		SeedCount:       sub.SeedCount,
-		EpisodesPerSlot: sub.EpisodesPerSlot,
-		ShiftSeconds:    sub.ShiftSeconds,
-		Mode:            sub.CadenceMode,
-		PubDates:        pubDates(episodes),
 	}
 
 	type row struct {
@@ -328,6 +317,8 @@ func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 
 	s.render(w, "schedule.html", map[string]any{
 		"Subscription": sub,
+		"Title":        s.subscriptionTitle(sub),
+		"Cadence":      cadenceSummary(sub),
 		"Episodes":     rows,
 	})
 }
@@ -345,19 +336,4 @@ func defaultStr(v, def string) string {
 		return def
 	}
 	return v
-}
-
-// pubDates indexes original publish dates by episode position.
-func pubDates(episodes []store.Episode) []*time.Time {
-	max := -1
-	for _, e := range episodes {
-		if e.Position > max {
-			max = e.Position
-		}
-	}
-	out := make([]*time.Time, max+1)
-	for _, e := range episodes {
-		out[e.Position] = e.OriginalPubDate
-	}
-	return out
 }

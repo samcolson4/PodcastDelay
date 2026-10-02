@@ -48,7 +48,7 @@
       <td>
         <strong>{{.Title}}</strong><br>
         <span class="muted">{{.SourceURL}}</span><br>
-        <span class="muted">{{if eq .CadenceMode "original"}}original cadence{{else}}every {{.CadenceDays}}d at {{.ReleaseTime}} ({{.Timezone}}){{end}}{{if .PausedAt}} — paused{{end}}</span>
+        <span class="muted">{{.Cadence}}{{if .PausedAt}} — paused{{end}}</span>
       </td>
       <td>
         {{if .IsCaughtUp}}
@@ -60,7 +60,7 @@
       <td>{{fmtTimeOrNil .NextReleaseAt}}</td>
       <td class="feed-url">{{$.BaseURL}}/f/{{.Token}}.xml</td>
       <td>
-        {{if .LastFetchError}}<span class="muted">{{.LastFetchError}}</span>{{else}}<span class="muted">—</span>{{end}}
+        <span class="muted">{{if .FetchStatus}}{{.FetchStatus}}{{else}}—{{end}}</span>
       </td>
       <td class="actions">
         <form class="inline" method="post" action="/admin/subscriptions/{{.ID}}/refresh"><button type="submit">Refresh</button></form>
@@ -93,12 +93,12 @@
   <div class="row" id="fixed-opts">
     <div><label>Cadence (days)<input type="number" name="cadence_days" min="1" value="7"></label></div>
     <div><label>Release time<input type="time" name="release_time" value="07:00"></label></div>
+    <div><label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="1"></label></div>
   </div>
   <div class="row">
     <div><label>Timezone<input type="text" name="timezone" value="{{.DefaultTimezone}}"></label></div>
     <div><label>Start at<input type="datetime-local" name="start_at" value="{{fmtInputTime .Now}}"></label></div>
     <div><label>Episodes already heard (released straight away)<input type="number" name="seed_count" min="0" value="1"></label></div>
-    <div><label>Episodes per slot (fixed only)<input type="number" name="episodes_per_slot" min="1" value="1"></label></div>
   </div>
   <div class="row">
     <div><label>Title override (optional)<input type="text" name="title_override"></label></div>
