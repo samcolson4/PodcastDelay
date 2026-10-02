@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -37,6 +38,17 @@ type AddParams struct {
 	EpisodesPerSlot int
 	MaxFeedItems    *int
 }
+
+// Values recorded in subscriptions.last_fetch_status. The refresh loop
+// keys its failure backoff off statusErrorPrefix, so the vocabulary lives
+// here rather than being spelled out at each use.
+const (
+	statusOK          = "ok"
+	statusNotModified = "not_modified"
+	statusErrorPrefix = "error: "
+)
+
+func errorStatus(err error) string { return statusErrorPrefix + err.Error() }
 
 func newToken() (string, error) {
 	b := make([]byte, 16) // 128 bits, per docs §4
@@ -65,6 +77,48 @@ func marshalChannel(ch source.Channel) (string, error) {
 		return "", fmt.Errorf("refresh: marshal channel: %w", err)
 	}
 	return string(b), nil
+}
+
+// ScheduleConfigFor builds the release-time configuration for sub from
+// its stored settings. Every caller that needs to compute release times —
+// ingest, the refresh loop, the admin schedule preview — goes through
+// here, so there is exactly one place where a new scheduling knob has to
+// be wired up.
+//
+// pubDates is only read in ModeOriginal and must be indexed by episode
+// position; PubDatesByPosition builds it from stored episodes.
+func ScheduleConfigFor(sub store.Subscription, pubDates []*time.Time) (schedule.Config, error) {
+	loc, err := time.LoadLocation(sub.Timezone)
+	if err != nil {
+		return schedule.Config{}, fmt.Errorf("refresh: subscription %d: invalid timezone %q: %w", sub.ID, sub.Timezone, err)
+	}
+	return schedule.Config{
+		StartAt:         sub.StartAt,
+		CadenceDays:     sub.CadenceDays,
+		ReleaseTime:     sub.ReleaseTime,
+		Location:        loc,
+		SeedCount:       sub.SeedCount,
+		EpisodesPerSlot: sub.EpisodesPerSlot,
+		ShiftSeconds:    sub.ShiftSeconds,
+		Mode:            sub.CadenceMode,
+		PubDates:        pubDates,
+	}, nil
+}
+
+// PubDatesByPosition indexes episodes' original publish dates by their
+// ingest position, the form schedule.Config expects.
+func PubDatesByPosition(episodes []store.Episode) []*time.Time {
+	max := -1
+	for _, e := range episodes {
+		if e.Position > max {
+			max = e.Position
+		}
+	}
+	out := make([]*time.Time, max+1)
+	for _, e := range episodes {
+		out[e.Position] = e.OriginalPubDate
+	}
+	return out
 }
 
 // AddSubscription fetches sourceURL for the first time, creates the
@@ -96,8 +150,8 @@ func AddSubscription(ctx context.Context, st *store.Store, fetcher *source.Fetch
 		return store.Subscription{}, err
 	}
 
-	loc, err := time.LoadLocation(p.Timezone)
-	if err != nil {
+	// Fail before creating anything if the timezone is unusable.
+	if _, err := time.LoadLocation(p.Timezone); err != nil {
 		return store.Subscription{}, fmt.Errorf("refresh: invalid timezone %q: %w", p.Timezone, err)
 	}
 
@@ -123,16 +177,12 @@ func AddSubscription(ctx context.Context, st *store.Store, fetcher *source.Fetch
 		}
 
 		items := sortOldestFirst(result.Items)
-		cfg := schedule.Config{
-			StartAt:         p.StartAt,
-			CadenceDays:     p.CadenceDays,
-			ReleaseTime:     p.ReleaseTime,
-			Location:        loc,
-			SeedCount:       p.SeedCount,
-			EpisodesPerSlot: p.EpisodesPerSlot,
-			ShiftSeconds:    0,
-			Mode:            p.CadenceMode,
-			PubDates:        itemPubDates(items),
+		// Build the config from the stored row, not from AddParams, so
+		// ingest schedules against the same normalized values every later
+		// refresh will use.
+		cfg, txErr := ScheduleConfigFor(sub, itemPubDates(items))
+		if txErr != nil {
+			return txErr
 		}
 		for i, it := range items {
 			at, err := cfg.ReleaseAt(i)
@@ -144,7 +194,7 @@ func AddSubscription(ctx context.Context, st *store.Store, fetcher *source.Fetch
 			}
 		}
 
-		return q.UpdateFetchState(ctx, sub.ID, nilIfEmpty(result.ETag), nilIfEmpty(result.LastModified), time.Now().UTC(), "ok")
+		return q.UpdateFetchState(ctx, sub.ID, nilIfEmpty(result.ETag), nilIfEmpty(result.LastModified), time.Now().UTC(), statusOK)
 	})
 	if err != nil {
 		return store.Subscription{}, err
@@ -228,17 +278,16 @@ func Poll(ctx context.Context, st *store.Store, fetcher *source.Fetcher, sub sto
 	result, err := fetcher.Fetch(ctx, sub.SourceURL, etag, lastModified)
 	if err != nil {
 		logger.Warn("refresh: fetch failed", "subscription_id", sub.ID, "error", err)
-		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, "error: "+err.Error())
+		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, errorStatus(err))
 	}
 
 	if result.NotModified {
-		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, "not_modified")
+		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, statusNotModified)
 	}
 
-	loc, err := time.LoadLocation(sub.Timezone)
-	if err != nil {
+	if _, err := time.LoadLocation(sub.Timezone); err != nil {
 		logger.Error("refresh: invalid stored timezone", "subscription_id", sub.ID, "timezone", sub.Timezone, "error", err)
-		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, "error: invalid timezone")
+		return st.UpdateFetchState(ctx, sub.ID, sub.ETag, sub.LastModified, now, errorStatus(errors.New("invalid timezone")))
 	}
 
 	return st.WithTx(ctx, func(q *store.Queries) error {
@@ -258,15 +307,15 @@ func Poll(ctx context.Context, st *store.Store, fetcher *source.Fetcher, sub sto
 			return err
 		}
 
-		if err := upsertEpisodes(ctx, q, sub, result.Items, now, loc); err != nil {
+		if err := upsertEpisodes(ctx, q, sub, result.Items, now); err != nil {
 			return err
 		}
 
-		if err := relockAndReschedule(ctx, q, sub, now, loc); err != nil {
+		if err := relockAndReschedule(ctx, q, sub, now); err != nil {
 			return err
 		}
 
-		return q.UpdateFetchState(ctx, sub.ID, nilIfEmpty(result.ETag), nilIfEmpty(result.LastModified), now, "ok")
+		return q.UpdateFetchState(ctx, sub.ID, nilIfEmpty(result.ETag), nilIfEmpty(result.LastModified), now, statusOK)
 	})
 }
 
@@ -274,7 +323,7 @@ func Poll(ctx context.Context, st *store.Store, fetcher *source.Fetcher, sub sto
 // first among themselves — docs §3.2), refreshes metadata on existing
 // rows without ever touching their position, and tombstones any GUID
 // that has disappeared from the source.
-func upsertEpisodes(ctx context.Context, q *store.Queries, sub store.Subscription, items []source.Item, now time.Time, loc *time.Location) error {
+func upsertEpisodes(ctx context.Context, q *store.Queries, sub store.Subscription, items []source.Item, now time.Time) error {
 	existing, err := q.ListBySubscription(ctx, sub.ID)
 	if err != nil {
 		return err
@@ -307,17 +356,10 @@ func upsertEpisodes(ctx context.Context, q *store.Queries, sub store.Subscriptio
 		}
 		nextPosition++
 
-		cfg := schedule.Config{
-			StartAt:         sub.StartAt,
-			CadenceDays:     sub.CadenceDays,
-			ReleaseTime:     sub.ReleaseTime,
-			Location:        loc,
-			SeedCount:       sub.SeedCount,
-			EpisodesPerSlot: sub.EpisodesPerSlot,
-			ShiftSeconds:    sub.ShiftSeconds,
+		cfg, err := ScheduleConfigFor(sub, PubDatesByPosition(existing))
+		if err != nil {
+			return err
 		}
-		cfg.Mode = sub.CadenceMode
-		cfg.PubDates = pubDatesByPosition(existing)
 		for _, it := range newItems {
 			cfg.PubDates = append(cfg.PubDates, it.PubDate)
 			at, err := cfg.ReleaseAt(nextPosition)
@@ -347,7 +389,7 @@ func upsertEpisodes(ctx context.Context, q *store.Queries, sub store.Subscriptio
 
 // relockAndReschedule applies the lock-then-recompute pair from
 // internal/schedule to every non-excluded episode in the subscription.
-func relockAndReschedule(ctx context.Context, q *store.Queries, sub store.Subscription, now time.Time, loc *time.Location) error {
+func relockAndReschedule(ctx context.Context, q *store.Queries, sub store.Subscription, now time.Time) error {
 	all, err := q.ListBySubscription(ctx, sub.ID)
 	if err != nil {
 		return err
@@ -365,16 +407,9 @@ func relockAndReschedule(ctx context.Context, q *store.Queries, sub store.Subscr
 
 	locked := schedule.ApplyLocks(now, rows)
 
-	cfg := schedule.Config{
-		StartAt:         sub.StartAt,
-		CadenceDays:     sub.CadenceDays,
-		ReleaseTime:     sub.ReleaseTime,
-		Location:        loc,
-		SeedCount:       sub.SeedCount,
-		EpisodesPerSlot: sub.EpisodesPerSlot,
-		ShiftSeconds:    sub.ShiftSeconds,
-		Mode:            sub.CadenceMode,
-		PubDates:        pubDatesByPosition(all),
+	cfg, err := ScheduleConfigFor(sub, PubDatesByPosition(all))
+	if err != nil {
+		return err
 	}
 	recomputed, err := schedule.Recompute(cfg, locked)
 	if err != nil {
@@ -397,21 +432,6 @@ func itemPubDates(items []source.Item) []*time.Time {
 	out := make([]*time.Time, len(items))
 	for i, it := range items {
 		out[i] = it.PubDate
-	}
-	return out
-}
-
-// pubDatesByPosition indexes original publish dates by episode position.
-func pubDatesByPosition(episodes []store.Episode) []*time.Time {
-	max := -1
-	for _, e := range episodes {
-		if e.Position > max {
-			max = e.Position
-		}
-	}
-	out := make([]*time.Time, max+1)
-	for _, e := range episodes {
-		out[e.Position] = e.OriginalPubDate
 	}
 	return out
 }

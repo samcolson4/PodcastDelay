@@ -2,29 +2,100 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"net/http"
 	"time"
 
+	"github.com/samcolson4/podcastdelay/internal/schedule"
 	"github.com/samcolson4/podcastdelay/internal/store"
 )
 
+// Defaults for a new subscription. The add form is pre-filled from these
+// and handleCreateSubscription falls back to them for blank fields, so the
+// two can't drift apart.
+const (
+	defaultCadenceDays     = 7
+	defaultSeedCount       = 1
+	defaultEpisodesPerSlot = 1
+	defaultReleaseTime     = "07:00"
+)
+
+const displayTimeLayout = "2 Jan 2006 15:04"
+
 var templateFuncs = template.FuncMap{
-	"fmtTime": func(t time.Time) string {
+	// fmtTime takes time.Time or *time.Time so the templates don't need
+	// to care which one a field happens to be.
+	"fmtTime": func(v any) string {
+		var t time.Time
+		switch x := v.(type) {
+		case time.Time:
+			t = x
+		case *time.Time:
+			if x != nil {
+				t = *x
+			}
+		}
 		if t.IsZero() {
 			return "—"
 		}
-		return t.Local().Format("2 Jan 2006 15:04")
+		return t.Local().Format(displayTimeLayout)
 	},
-	"fmtTimeOrNil": func(t *time.Time) string {
-		if t == nil {
-			return "—"
+	// inputTime renders t for <input type="datetime-local">, in the
+	// timezone the form will interpret it back in — otherwise saving the
+	// edit form unchanged would silently shift start_at by the zone offset.
+	"inputTime": func(t time.Time, tz string) string {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			t = t.In(loc)
 		}
-		return t.Local().Format("2 Jan 2006 15:04")
+		return t.Format(startAtLayout)
 	},
-	"fmtInputTime": func(t time.Time) string {
-		return t.Format("2006-01-02T15:04")
-	},
+}
+
+// channelMeta decodes a subscription's cached show metadata. A blob we
+// can't read costs us the show's title, not the page.
+func (s *Server) channelMeta(sub store.Subscription) store.ChannelMeta {
+	var meta store.ChannelMeta
+	if err := json.Unmarshal([]byte(sub.ChannelJSON), &meta); err != nil {
+		s.Logger.Warn("invalid channel_json", "subscription_id", sub.ID, "error", err)
+	}
+	return meta
+}
+
+// titleOverrideOr applies the subscription's title override, if it has one.
+func titleOverrideOr(sub store.Subscription, fallback string) string {
+	if sub.TitleOverride != nil && *sub.TitleOverride != "" {
+		return *sub.TitleOverride
+	}
+	return fallback
+}
+
+// subscriptionTitle is the admin-facing name of a show: the override, the
+// title the publisher gave it, or (before the first successful fetch) the
+// source URL.
+func (s *Server) subscriptionTitle(sub store.Subscription) string {
+	title := titleOverrideOr(sub, s.channelMeta(sub).Title)
+	if title == "" {
+		title = sub.SourceURL
+	}
+	return title
+}
+
+// cadenceSummary describes a subscription's release pace in one line, so
+// both admin pages say the same thing about it.
+func cadenceSummary(sub store.Subscription) string {
+	if sub.CadenceMode == schedule.ModeOriginal {
+		return "original cadence (the show's own release gaps)"
+	}
+	unit := "days"
+	if sub.CadenceDays == 1 {
+		unit = "day"
+	}
+	summary := fmt.Sprintf("every %d %s at %s (%s)", sub.CadenceDays, unit, sub.ReleaseTime, sub.Timezone)
+	if sub.EpisodesPerSlot > 1 {
+		summary += fmt.Sprintf(", %d episodes per slot", sub.EpisodesPerSlot)
+	}
+	return summary
 }
 
 // subscriptionView bundles a subscription with everything the
@@ -32,13 +103,14 @@ var templateFuncs = template.FuncMap{
 // up in 2029"), and next release.
 type subscriptionView struct {
 	store.Subscription
-	Title          string
-	TotalEpisodes  int
-	ReleasedCount  int
-	NextReleaseAt  *time.Time
-	CaughtUpAt     *time.Time
-	IsCaughtUp     bool
-	LastFetchError string
+	Title         string
+	Cadence       string
+	TotalEpisodes int
+	ReleasedCount int
+	NextReleaseAt *time.Time
+	CaughtUpAt    *time.Time
+	IsCaughtUp    bool
+	FetchStatus   string
 }
 
 func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) (subscriptionView, error) {
@@ -47,18 +119,12 @@ func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) 
 		return subscriptionView{}, err
 	}
 
-	var meta store.ChannelMeta
-	_ = json.Unmarshal([]byte(sub.ChannelJSON), &meta)
-	title := meta.Title
-	if sub.TitleOverride != nil && *sub.TitleOverride != "" {
-		title = *sub.TitleOverride
-	}
-	if title == "" {
-		title = sub.SourceURL
-	}
-
 	now := time.Now().UTC()
-	v := subscriptionView{Subscription: sub, Title: title}
+	v := subscriptionView{
+		Subscription: sub,
+		Title:        s.subscriptionTitle(sub),
+		Cadence:      cadenceSummary(sub),
+	}
 
 	var nonExcluded []store.Episode
 	for _, e := range episodes {
@@ -84,7 +150,7 @@ func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) 
 		v.IsCaughtUp = !last.ScheduledAt.After(now)
 	}
 	if sub.LastFetchStatus != nil {
-		v.LastFetchError = *sub.LastFetchStatus
+		v.FetchStatus = *sub.LastFetchStatus
 	}
 
 	return v, nil
@@ -111,19 +177,18 @@ func (s *Server) renderDashboardWithError(w http.ResponseWriter, r *http.Request
 		views = append(views, v)
 	}
 
-	// The start_at field is interpreted in the chosen timezone, so its
-	// default must be "now" on that clock, not UTC.
-	now := time.Now().UTC()
-	if loc, err := time.LoadLocation(s.DefaultTimezone); err == nil {
-		now = now.In(loc)
-	}
-
 	s.render(w, "dashboard.html", map[string]any{
 		"Subscriptions":   views,
 		"Error":           errMsg,
 		"BaseURL":         s.BaseURL,
 		"DefaultTimezone": s.DefaultTimezone,
-		"Now":             now,
+		"Now":             time.Now().UTC(),
+		"Defaults": map[string]any{
+			"CadenceDays":     defaultCadenceDays,
+			"SeedCount":       defaultSeedCount,
+			"EpisodesPerSlot": defaultEpisodesPerSlot,
+			"ReleaseTime":     defaultReleaseTime,
+		},
 	})
 }
 

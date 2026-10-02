@@ -7,6 +7,8 @@ package web
 import (
 	"crypto/subtle"
 	"embed"
+	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -18,33 +20,43 @@ import (
 //go:embed templates/*.html
 var templatesFS embed.FS
 
-type Server struct {
+// Options is everything the HTTP layer needs from the rest of the
+// program. It is a struct rather than a parameter list because four of
+// the fields are strings and transposing two of them (say, the admin
+// user and password) would otherwise compile happily.
+type Options struct {
 	Store           *store.Store
 	Fetcher         *source.Fetcher
-	BaseURL         string
+	BaseURL         string // absolute, no trailing slash
 	AdminUser       string
 	AdminPassword   string
-	DefaultTimezone string
+	DefaultTimezone string // default for new subscriptions
 	Logger          *slog.Logger
+}
+
+// Server serves the public feed route and the admin UI. Options is
+// embedded so handlers read configuration as s.BaseURL, s.Store, ...
+type Server struct {
+	Options
 
 	tmpl *template.Template
 }
 
-func New(st *store.Store, fetcher *source.Fetcher, baseURL, adminUser, adminPassword, defaultTimezone string, logger *slog.Logger) (*Server, error) {
+func New(opts Options) (*Server, error) {
+	if opts.Store == nil || opts.Fetcher == nil {
+		return nil, errors.New("web: Store and Fetcher are required")
+	}
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
+	}
+	if opts.DefaultTimezone == "" {
+		opts.DefaultTimezone = "UTC"
+	}
 	tmpl, err := template.New("").Funcs(templateFuncs).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("web: parse templates: %w", err)
 	}
-	return &Server{
-		Store:           st,
-		Fetcher:         fetcher,
-		BaseURL:         baseURL,
-		AdminUser:       adminUser,
-		AdminPassword:   adminPassword,
-		DefaultTimezone: defaultTimezone,
-		Logger:          logger,
-		tmpl:            tmpl,
-	}, nil
+	return &Server{Options: opts, tmpl: tmpl}, nil
 }
 
 func (s *Server) Routes() http.Handler {

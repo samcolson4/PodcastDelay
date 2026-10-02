@@ -226,32 +226,6 @@ func TestRecompute_SkipsLocked(t *testing.T) {
 	}
 }
 
-func TestPreview(t *testing.T) {
-	loc := mustLoc(t, "UTC")
-	start := time.Date(2026, 1, 5, 7, 0, 0, 0, loc)
-	cfg := Config{
-		StartAt:         start,
-		CadenceDays:     7,
-		ReleaseTime:     "07:00",
-		Location:        loc,
-		SeedCount:       1,
-		EpisodesPerSlot: 1,
-	}
-
-	times, err := cfg.Preview(1, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(times) != 3 {
-		t.Fatalf("got %d times, want 3", len(times))
-	}
-	for i := 1; i < len(times); i++ {
-		if !times[i].After(times[i-1]) {
-			t.Errorf("preview times not increasing at index %d: %v <= %v", i, times[i], times[i-1])
-		}
-	}
-}
-
 func TestReleaseAt_InvalidEpisodesPerSlot(t *testing.T) {
 	cfg := Config{Location: time.UTC, EpisodesPerSlot: 0}
 	if _, err := cfg.ReleaseAt(5); err == nil {
@@ -290,6 +264,37 @@ func TestReleaseAt_OriginalCadence(t *testing.T) {
 		}
 		if !got.Equal(c.want) {
 			t.Errorf("pos %d: got %v want %v", c.pos, got, c.want)
+		}
+	}
+}
+
+func TestNormalizeReleaseTime(t *testing.T) {
+	for _, tc := range []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{in: "07:00", want: "07:00"},
+		{in: " 7:05 ", want: "07:05"},
+		{in: "07:00:00", want: "07:00"}, // some browsers' <input type="time">
+		{in: "23:59", want: "23:59"},
+		{in: "24:00", wantErr: true},
+		{in: "7am", wantErr: true},
+		{in: "", wantErr: true},
+	} {
+		got, err := NormalizeReleaseTime(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("NormalizeReleaseTime(%q): expected an error, got %q", tc.in, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("NormalizeReleaseTime(%q): %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("NormalizeReleaseTime(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

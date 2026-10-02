@@ -3,7 +3,6 @@
 *.db
 *.db-wal
 *.db-shm
-admin_password.txt
 
 # Local config / secrets (never commit)
 .env

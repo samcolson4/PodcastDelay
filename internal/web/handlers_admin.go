@@ -1,6 +1,8 @@
 package web
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,79 +23,80 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	sourceURL := strings.TrimSpace(r.FormValue("source_url"))
-	if sourceURL == "" {
-		s.renderDashboardWithError(w, r, "source_url is required")
+	// One shape for every field error: re-render the dashboard with the
+	// message above the form, so nothing typed in is lost.
+	fail := func(err error) { s.renderDashboardWithError(w, r, err.Error()) }
+
+	sourceURL := optionalString(r, "source_url")
+	if sourceURL == nil {
+		fail(errors.New("source_url is required"))
 		return
 	}
 
-	cadenceDays, err := strconv.Atoi(defaultStr(r.FormValue("cadence_days"), "7"))
-	if err != nil || cadenceDays < 1 {
-		s.renderDashboardWithError(w, r, "cadence_days must be a positive integer")
+	cadenceDays, err := intOrDefault(r, "cadence_days", 1, defaultCadenceDays)
+	if err != nil {
+		fail(err)
 		return
 	}
-	cadenceMode := defaultStr(r.FormValue("cadence_mode"), "fixed")
-	if cadenceMode != "fixed" && cadenceMode != "original" {
-		s.renderDashboardWithError(w, r, "cadence_mode must be fixed or original")
+	seedCount, err := intOrDefault(r, "seed_count", 0, defaultSeedCount)
+	if err != nil {
+		fail(err)
 		return
 	}
-	seedCount, err := strconv.Atoi(defaultStr(r.FormValue("seed_count"), "1"))
-	if err != nil || seedCount < 0 {
-		s.renderDashboardWithError(w, r, "seed_count must be a non-negative integer")
+	episodesPerSlot, err := intOrDefault(r, "episodes_per_slot", 1, defaultEpisodesPerSlot)
+	if err != nil {
+		fail(err)
 		return
 	}
-	episodesPerSlot, err := strconv.Atoi(defaultStr(r.FormValue("episodes_per_slot"), "1"))
-	if err != nil || episodesPerSlot < 1 {
-		s.renderDashboardWithError(w, r, "episodes_per_slot must be a positive integer")
-		return
-	}
-	releaseTime := defaultStr(r.FormValue("release_time"), "07:00")
-	timezone := defaultStr(r.FormValue("timezone"), s.DefaultTimezone)
-	if _, err := time.LoadLocation(timezone); err != nil {
-		s.renderDashboardWithError(w, r, "invalid timezone: "+err.Error())
+	maxFeedItems, err := optionalInt(r, "max_feed_items", 1)
+	if err != nil {
+		fail(err)
 		return
 	}
 
-	startAt := time.Now().UTC()
-	if v := strings.TrimSpace(r.FormValue("start_at")); v != "" {
-		parsed, err := time.Parse("2006-01-02T15:04", v)
-		if err != nil {
-			s.renderDashboardWithError(w, r, "invalid start_at, expected YYYY-MM-DDTHH:MM")
-			return
-		}
-		loc, _ := time.LoadLocation(timezone)
-		startAt = time.Date(parsed.Year(), parsed.Month(), parsed.Day(), parsed.Hour(), parsed.Minute(), 0, 0, loc)
+	cadenceMode, err := optionalCadenceMode(r, "cadence_mode")
+	if err != nil {
+		fail(err)
+		return
+	}
+	releaseTime, err := optionalReleaseTime(r, "release_time")
+	if err != nil {
+		fail(err)
+		return
+	}
+	timezone, err := optionalTimezone(r, "timezone")
+	if err != nil {
+		fail(err)
+		return
 	}
 
-	var titleOverride *string
-	if v := strings.TrimSpace(r.FormValue("title_override")); v != "" {
-		titleOverride = &v
+	tz := valueOr(timezone, s.DefaultTimezone)
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		fail(fmt.Errorf("invalid timezone %q", tz))
+		return
 	}
-	var maxFeedItems *int
-	if v := strings.TrimSpace(r.FormValue("max_feed_items")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			s.renderDashboardWithError(w, r, "max_feed_items must be a positive integer")
-			return
-		}
-		maxFeedItems = &n
+	startAt, err := optionalStartAt(r, "start_at", loc)
+	if err != nil {
+		fail(err)
+		return
 	}
 
 	_, err = refresh.AddSubscription(r.Context(), s.Store, s.Fetcher, refresh.AddParams{
-		SourceURL:       sourceURL,
-		TitleOverride:   titleOverride,
+		SourceURL:       *sourceURL,
+		TitleOverride:   optionalString(r, "title_override"),
 		CadenceDays:     cadenceDays,
-		CadenceMode:     cadenceMode,
-		ReleaseTime:     releaseTime,
-		Timezone:        timezone,
-		StartAt:         startAt,
+		CadenceMode:     valueOr(cadenceMode, schedule.ModeFixed),
+		ReleaseTime:     valueOr(releaseTime, defaultReleaseTime),
+		Timezone:        tz,
+		StartAt:         valueOr(startAt, time.Now().In(loc)),
 		SeedCount:       seedCount,
 		EpisodesPerSlot: episodesPerSlot,
 		MaxFeedItems:    maxFeedItems,
 	})
 	if err != nil {
 		s.Logger.Error("admin: add subscription failed", "error", err)
-		s.renderDashboardWithError(w, r, "could not add feed: "+err.Error())
+		fail(fmt.Errorf("could not add feed: %w", err))
 		return
 	}
 
@@ -110,71 +113,49 @@ func (s *Server) handlePatchSubscription(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
+	current, err := s.Store.GetSubscription(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
-	patch := store.SubscriptionPatch{}
-	if v := r.FormValue("cadence_days"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			http.Error(w, "invalid cadence_days", http.StatusBadRequest)
-			return
-		}
-		patch.CadenceDays = &n
+	// Every field is optional: absent means "leave it alone".
+	var patch store.SubscriptionPatch
+	if patch.CadenceDays, err = optionalInt(r, "cadence_days", 1); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	if v := r.FormValue("cadence_mode"); v != "" {
-		if v != "fixed" && v != "original" {
-			http.Error(w, "invalid cadence_mode", http.StatusBadRequest)
-			return
-		}
-		patch.CadenceMode = &v
+	if patch.SeedCount, err = optionalInt(r, "seed_count", 0); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	if v := r.FormValue("seed_count"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 {
-			http.Error(w, "invalid seed_count", http.StatusBadRequest)
-			return
-		}
-		patch.SeedCount = &n
+	if patch.EpisodesPerSlot, err = optionalInt(r, "episodes_per_slot", 1); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	if v := r.FormValue("episodes_per_slot"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			http.Error(w, "invalid episodes_per_slot", http.StatusBadRequest)
-			return
-		}
-		patch.EpisodesPerSlot = &n
+	if patch.CadenceMode, err = optionalCadenceMode(r, "cadence_mode"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	if v := r.FormValue("release_time"); v != "" {
-		patch.ReleaseTime = &v
+	if patch.ReleaseTime, err = optionalReleaseTime(r, "release_time"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	if v := r.FormValue("timezone"); v != "" {
-		if _, err := time.LoadLocation(v); err != nil {
-			http.Error(w, "invalid timezone", http.StatusBadRequest)
-			return
-		}
-		patch.Timezone = &v
+	if patch.Timezone, err = optionalTimezone(r, "timezone"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	if v := r.FormValue("title_override"); v != "" {
-		patch.TitleOverride = &v
+	patch.TitleOverride = optionalString(r, "title_override")
+
+	// start_at is wall-clock in the subscription's timezone, which this
+	// same request may be changing.
+	loc, err := time.LoadLocation(valueOr(patch.Timezone, current.Timezone))
+	if err != nil {
+		loc = time.UTC
 	}
-	if v := r.FormValue("start_at"); v != "" {
-		// Interpret in the (possibly just-changed) subscription timezone,
-		// matching how the add form treats start_at.
-		tz := s.DefaultTimezone
-		if patch.Timezone != nil {
-			tz = *patch.Timezone
-		} else if cur, err := s.Store.GetSubscription(r.Context(), id); err == nil {
-			tz = cur.Timezone
-		}
-		loc, err := time.LoadLocation(tz)
-		if err != nil {
-			loc = time.UTC
-		}
-		parsed, err := time.ParseInLocation("2006-01-02T15:04", v, loc)
-		if err != nil {
-			http.Error(w, "invalid start_at", http.StatusBadRequest)
-			return
-		}
-		patch.StartAt = &parsed
+	if patch.StartAt, err = optionalStartAt(r, "start_at", loc); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	if _, err := s.Store.PatchSubscription(r.Context(), id, patch); err != nil {
@@ -264,17 +245,22 @@ func (s *Server) handleIncludeEpisode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) setExcluded(w http.ResponseWriter, r *http.Request, excluded bool) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return
+	}
 	episodeID, err := pathInt64(r, "episode_id")
 	if err != nil {
 		http.Error(w, "bad episode id", http.StatusBadRequest)
 		return
 	}
 	if err := s.Store.SetExcluded(r.Context(), episodeID, excluded); err != nil {
+		s.Logger.Error("admin: set excluded failed", "episode_id", episodeID, "error", err)
 		http.Error(w, "update failed", http.StatusInternalServerError)
 		return
 	}
-	id := r.PathValue("id")
-	http.Redirect(w, r, "/admin/subscriptions/"+id+"/schedule", http.StatusSeeOther)
+	http.Redirect(w, r, fmt.Sprintf("/admin/subscriptions/%d/schedule", id), http.StatusSeeOther)
 }
 
 func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
@@ -294,21 +280,11 @@ func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	loc, err := time.LoadLocation(sub.Timezone)
+	cfg, err := refresh.ScheduleConfigFor(sub, refresh.PubDatesByPosition(episodes))
 	if err != nil {
-		http.Error(w, "invalid timezone", http.StatusInternalServerError)
+		s.Logger.Error("admin: schedule preview failed", "id", id, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
-	}
-	cfg := schedule.Config{
-		StartAt:         sub.StartAt,
-		CadenceDays:     sub.CadenceDays,
-		ReleaseTime:     sub.ReleaseTime,
-		Location:        loc,
-		SeedCount:       sub.SeedCount,
-		EpisodesPerSlot: sub.EpisodesPerSlot,
-		ShiftSeconds:    sub.ShiftSeconds,
-		Mode:            sub.CadenceMode,
-		PubDates:        pubDates(episodes),
 	}
 
 	type row struct {
@@ -328,36 +304,24 @@ func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 
 	s.render(w, "schedule.html", map[string]any{
 		"Subscription": sub,
+		"Title":        s.subscriptionTitle(sub),
+		"Cadence":      cadenceSummary(sub),
 		"Episodes":     rows,
 	})
 }
 
 func (s *Server) redirectOrOK(w http.ResponseWriter, r *http.Request, location string) {
-	if r.Header.Get("Accept") == "application/json" {
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 	http.Redirect(w, r, location, http.StatusSeeOther)
 }
 
-func defaultStr(v, def string) string {
-	if strings.TrimSpace(v) == "" {
+// valueOr dereferences p, falling back to def when the field was absent.
+func valueOr[T any](p *T, def T) T {
+	if p == nil {
 		return def
 	}
-	return v
-}
-
-// pubDates indexes original publish dates by episode position.
-func pubDates(episodes []store.Episode) []*time.Time {
-	max := -1
-	for _, e := range episodes {
-		if e.Position > max {
-			max = e.Position
-		}
-	}
-	out := make([]*time.Time, max+1)
-	for _, e := range episodes {
-		out[e.Position] = e.OriginalPubDate
-	}
-	return out
+	return *p
 }
