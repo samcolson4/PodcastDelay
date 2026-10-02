@@ -5,6 +5,7 @@ package schedule
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -127,12 +128,25 @@ func (c Config) originalReleaseAt(position int) time.Time {
 	return at
 }
 
-func parseReleaseTime(s string) (hour, minute int, err error) {
-	t, err := time.Parse("15:04", s)
+// NormalizeReleaseTime validates a wall-clock release time and returns it
+// in canonical "HH:MM" form. Seconds are accepted and dropped, because
+// <input type="time"> sends "HH:MM:SS" in some browsers.
+func NormalizeReleaseTime(s string) (string, error) {
+	hour, minute, err := parseReleaseTime(s)
 	if err != nil {
-		return 0, 0, fmt.Errorf("schedule: invalid release_time %q: %w", s, err)
+		return "", err
 	}
-	return t.Hour(), t.Minute(), nil
+	return fmt.Sprintf("%02d:%02d", hour, minute), nil
+}
+
+func parseReleaseTime(s string) (hour, minute int, err error) {
+	s = strings.TrimSpace(s)
+	for _, layout := range []string{"15:04", "15:04:05"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.Hour(), t.Minute(), nil
+		}
+	}
+	return 0, 0, fmt.Errorf("schedule: invalid release_time %q (want \"HH:MM\")", s)
 }
 
 // Episode is the minimal view of an episode row that scheduling needs.
@@ -172,21 +186,6 @@ func Recompute(cfg Config, episodes []Episode) ([]Episode, error) {
 			e.ScheduledAt = at
 		}
 		out[i] = e
-	}
-	return out, nil
-}
-
-// Preview returns the release times for count positions starting at
-// fromPosition, useful for showing the next N releases without
-// touching the database.
-func (c Config) Preview(fromPosition, count int) ([]time.Time, error) {
-	out := make([]time.Time, 0, count)
-	for i := 0; i < count; i++ {
-		at, err := c.ReleaseAt(fromPosition + i)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, at)
 	}
 	return out, nil
 }
