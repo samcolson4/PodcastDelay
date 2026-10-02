@@ -14,19 +14,30 @@ import (
 const displayTimeLayout = "2 Jan 2006 15:04"
 
 var templateFuncs = template.FuncMap{
-	"fmtTime": func(t time.Time) string {
+	// fmtTime takes time.Time or *time.Time so the templates don't need
+	// to care which one a field happens to be.
+	"fmtTime": func(v any) string {
+		var t time.Time
+		switch x := v.(type) {
+		case time.Time:
+			t = x
+		case *time.Time:
+			if x != nil {
+				t = *x
+			}
+		}
 		if t.IsZero() {
 			return "—"
 		}
 		return t.Local().Format(displayTimeLayout)
 	},
-	"fmtTimeOrNil": func(t *time.Time) string {
-		if t == nil {
-			return "—"
+	// inputTime renders t for <input type="datetime-local">, in the
+	// timezone the form will interpret it back in — otherwise saving the
+	// edit form unchanged would silently shift start_at by the zone offset.
+	"inputTime": func(t time.Time, tz string) string {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			t = t.In(loc)
 		}
-		return t.Local().Format(displayTimeLayout)
-	},
-	"fmtInputTime": func(t time.Time) string {
 		return t.Format("2006-01-02T15:04")
 	},
 }
@@ -156,19 +167,12 @@ func (s *Server) renderDashboardWithError(w http.ResponseWriter, r *http.Request
 		views = append(views, v)
 	}
 
-	// The start_at field is interpreted in the chosen timezone, so its
-	// default must be "now" on that clock, not UTC.
-	now := time.Now().UTC()
-	if loc, err := time.LoadLocation(s.DefaultTimezone); err == nil {
-		now = now.In(loc)
-	}
-
 	s.render(w, "dashboard.html", map[string]any{
 		"Subscriptions":   views,
 		"Error":           errMsg,
 		"BaseURL":         s.BaseURL,
 		"DefaultTimezone": s.DefaultTimezone,
-		"Now":             now,
+		"Now":             time.Now().UTC(),
 	})
 }
 

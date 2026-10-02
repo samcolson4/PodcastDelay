@@ -41,7 +41,7 @@
     <div><label>Timezone<input type="text" name="timezone" value="{{.Subscription.Timezone}}"></label></div>
   </div>
   <div class="row">
-    <div><label>Start at<input type="datetime-local" name="start_at" value="{{fmtInputTime .Subscription.StartAt}}"></label></div>
+    <div><label>Start at<input type="datetime-local" name="start_at" value="{{inputTime .Subscription.StartAt .Subscription.Timezone}}"></label></div>
     <div><label>Seed count<input type="number" name="seed_count" min="0" value="{{.Subscription.SeedCount}}"></label></div>
     <div><label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="{{.Subscription.EpisodesPerSlot}}"></label></div>
   </div>

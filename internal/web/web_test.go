@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -285,5 +286,50 @@ func TestPatchSubscription_ReschedulesUnlockedOnly(t *testing.T) {
 	}
 	if after[1].ScheduledAt.Equal(before[1].ScheduledAt) {
 		t.Error("expected unlocked future episode's scheduled_at to change after cadence edit")
+	}
+}
+
+// Saving the edit form without touching start_at must not move it: the
+// field is rendered in the subscription's timezone and parsed back in the
+// same one, so a zone offset can't creep in on every save.
+func TestSchedulePage_StartAtRoundTrips(t *testing.T) {
+	h := newTestHarness(t)
+	sub := h.addSubscription(t)
+	id := strconv.FormatInt(sub.ID, 10)
+
+	patch := h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/edit",
+		url.Values{"timezone": {"Europe/London"}})
+	patch.Body.Close()
+
+	before, err := h.store.GetSubscription(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page := h.adminRequest(t, http.MethodGet, "/admin/subscriptions/"+id+"/schedule", nil)
+	body, err := io.ReadAll(page.Body)
+	page.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`name="start_at"[^>]*value="([^"]+)"`).FindStringSubmatch(string(body))
+	if m == nil {
+		t.Fatalf("no start_at field on the schedule page:\n%s", body)
+	}
+
+	resave := h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/edit", url.Values{
+		"timezone": {"Europe/London"},
+		"start_at": {m[1]},
+	})
+	resave.Body.Close()
+
+	after, err := h.store.GetSubscription(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The form only carries minutes, so compare at that resolution.
+	if !after.StartAt.Truncate(time.Minute).Equal(before.StartAt.Truncate(time.Minute)) {
+		t.Errorf("start_at moved on an unchanged save: got %v, want %v (form value %q)",
+			after.StartAt, before.StartAt, m[1])
 	}
 }

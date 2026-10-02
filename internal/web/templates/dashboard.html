@@ -35,10 +35,10 @@
         {{if .IsCaughtUp}}
           caught up ({{.ReleasedCount}}/{{.TotalEpisodes}})
         {{else}}
-          ep {{.ReleasedCount}} of {{.TotalEpisodes}}{{if .CaughtUpAt}}<br><span class="muted">caught up {{fmtTimeOrNil .CaughtUpAt}}</span>{{end}}
+          ep {{.ReleasedCount}} of {{.TotalEpisodes}}{{if .CaughtUpAt}}<br><span class="muted">caught up {{fmtTime .CaughtUpAt}}</span>{{end}}
         {{end}}
       </td>
-      <td>{{fmtTimeOrNil .NextReleaseAt}}</td>
+      <td>{{fmtTime .NextReleaseAt}}</td>
       <td class="feed-url">{{$.BaseURL}}/f/{{.Token}}.xml</td>
       <td>
         <span class="muted">{{if .FetchStatus}}{{.FetchStatus}}{{else}}—{{end}}</span>
@@ -78,7 +78,7 @@
   </div>
   <div class="row">
     <div><label>Timezone<input type="text" name="timezone" value="{{.DefaultTimezone}}"></label></div>
-    <div><label>Start at<input type="datetime-local" name="start_at" value="{{fmtInputTime .Now}}"></label></div>
+    <div><label>Start at<input type="datetime-local" name="start_at" value="{{inputTime .Now .DefaultTimezone}}"></label></div>
     <div><label>Episodes already heard (released straight away)<input type="number" name="seed_count" min="0" value="1"></label></div>
   </div>
   <div class="row">
