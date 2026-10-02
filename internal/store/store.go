@@ -20,6 +20,32 @@ type dbtx interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
+// rowScanner is satisfied by both *sql.Row and *sql.Rows, so one scan
+// function serves single-row lookups and list queries alike.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// queryAll runs query and collects every row through scan. Callers wrap
+// the error with the name of the query they ran.
+func queryAll[T any](ctx context.Context, db dbtx, scan func(rowScanner) (T, error), query string, args ...any) ([]T, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []T
+	for rows.Next() {
+		v, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 // Queries is the set of typed operations, usable against either a plain
 // connection or a transaction.
 type Queries struct {

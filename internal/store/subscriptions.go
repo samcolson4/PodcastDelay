@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/samcolson4/podcastdelay/internal/schedule"
 )
 
 // ErrNotFound is returned when a lookup by id or token matches nothing.
@@ -57,9 +59,7 @@ const subscriptionColumns = `
 	paused_at, max_feed_items, channel_json, etag, last_modified,
 	last_fetched_at, last_fetch_status, created_at, updated_at, cadence_mode`
 
-func scanSubscription(row interface {
-	Scan(dest ...any) error
-}) (Subscription, error) {
+func scanSubscription(row rowScanner) (Subscription, error) {
 	var s Subscription
 	var titleOverride, etag, lastModified, lastFetchStatus sql.NullString
 	var pausedAt, lastFetchedAt sql.NullString
@@ -125,43 +125,11 @@ func (q *Queries) GetSubscriptionByToken(ctx context.Context, token string) (Sub
 }
 
 func (q *Queries) ListSubscriptions(ctx context.Context) ([]Subscription, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT `+subscriptionColumns+` FROM subscriptions ORDER BY id`)
+	subs, err := queryAll(ctx, q.db, scanSubscription, `SELECT `+subscriptionColumns+` FROM subscriptions ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list subscriptions: %w", err)
 	}
-	defer rows.Close()
-
-	var out []Subscription
-	for rows.Next() {
-		s, err := scanSubscription(rows)
-		if err != nil {
-			return nil, fmt.Errorf("store: scan subscription: %w", err)
-		}
-		out = append(out, s)
-	}
-	return out, rows.Err()
-}
-
-// ListDueForRefresh returns subscriptions whose last_fetched_at is
-// older than the given cutoff (or has never been fetched).
-func (q *Queries) ListDueForRefresh(ctx context.Context, cutoff time.Time) ([]Subscription, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT `+subscriptionColumns+` FROM subscriptions
-		WHERE last_fetched_at IS NULL OR last_fetched_at < ?
-		ORDER BY id`, toDBTime(cutoff))
-	if err != nil {
-		return nil, fmt.Errorf("store: list due subscriptions: %w", err)
-	}
-	defer rows.Close()
-
-	var out []Subscription
-	for rows.Next() {
-		s, err := scanSubscription(rows)
-		if err != nil {
-			return nil, fmt.Errorf("store: scan subscription: %w", err)
-		}
-		out = append(out, s)
-	}
-	return out, rows.Err()
+	return subs, nil
 }
 
 // SubscriptionPatch carries only the fields PATCH /admin/subscriptions/{id}
@@ -318,9 +286,11 @@ func (q *Queries) UpdateChannelJSON(ctx context.Context, id int64, channelJSON s
 	return nil
 }
 
+// modeOrFixed guards the cadence_mode column against unknown values:
+// anything we don't recognise behaves as the default fixed cadence.
 func modeOrFixed(m string) string {
-	if m == "original" {
-		return "original"
+	if m == schedule.ModeOriginal {
+		return schedule.ModeOriginal
 	}
-	return "fixed"
+	return schedule.ModeFixed
 }

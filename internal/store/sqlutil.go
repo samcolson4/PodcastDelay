@@ -5,9 +5,10 @@ import (
 	"time"
 )
 
-// Times are stored as RFC3339Nano text rather than relying on driver
-// magic to round-trip time.Time, so behaviour doesn't depend on which
-// SQLite driver is in use.
+// Conversions between Go values and the nullable columns SQLite hands
+// back. Times are stored as RFC3339Nano text rather than relying on
+// driver magic to round-trip time.Time, so behaviour doesn't depend on
+// which SQLite driver is in use.
 const timeLayout = time.RFC3339Nano
 
 func toDBTime(t time.Time) string {

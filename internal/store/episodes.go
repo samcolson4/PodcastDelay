@@ -36,9 +36,7 @@ const episodeColumns = `
 	enclosure_type, enclosure_length, duration, episode_number, season,
 	episode_type, explicit, image_url, first_seen_at, missing_since`
 
-func scanEpisode(row interface {
-	Scan(dest ...any) error
-}) (Episode, error) {
+func scanEpisode(row rowScanner) (Episode, error) {
 	var e Episode
 	var originalPubDate, missingSince sql.NullString
 	var description, link, enclosureType, duration, episodeType, imageURL sql.NullString
@@ -136,21 +134,12 @@ func (q *Queries) GetEpisodeByGUID(ctx context.Context, subscriptionID int64, gu
 // tombstoned) ordered by ingest position, for admin views and
 // rescheduling.
 func (q *Queries) ListBySubscription(ctx context.Context, subscriptionID int64) ([]Episode, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT `+episodeColumns+` FROM episodes WHERE subscription_id = ? ORDER BY position`, subscriptionID)
+	episodes, err := queryAll(ctx, q.db, scanEpisode,
+		`SELECT `+episodeColumns+` FROM episodes WHERE subscription_id = ? ORDER BY position`, subscriptionID)
 	if err != nil {
 		return nil, fmt.Errorf("store: list episodes: %w", err)
 	}
-	defer rows.Close()
-
-	var out []Episode
-	for rows.Next() {
-		e, err := scanEpisode(rows)
-		if err != nil {
-			return nil, fmt.Errorf("store: scan episode: %w", err)
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
+	return episodes, nil
 }
 
 // ListReleased returns episodes visible in the public feed: not
@@ -168,21 +157,11 @@ func (q *Queries) ListReleased(ctx context.Context, subscriptionID int64, now ti
 		args = append(args, limit)
 	}
 
-	rows, err := q.db.QueryContext(ctx, query, args...)
+	episodes, err := queryAll(ctx, q.db, scanEpisode, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: list released episodes: %w", err)
 	}
-	defer rows.Close()
-
-	var out []Episode
-	for rows.Next() {
-		e, err := scanEpisode(rows)
-		if err != nil {
-			return nil, fmt.Errorf("store: scan episode: %w", err)
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
+	return episodes, nil
 }
 
 // UpdateEpisodeMetadata refreshes the mutable, non-scheduling fields
