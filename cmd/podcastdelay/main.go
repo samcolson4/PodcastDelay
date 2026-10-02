@@ -86,7 +86,15 @@ func runServe(args []string) error {
 
 	fetcher := source.NewFetcher()
 
-	srv, err := web.New(st, fetcher, cfg.BaseURL, cfg.AdminUser, cfg.AdminPassword, cfg.DefaultTimezone, logger)
+	srv, err := web.New(web.Options{
+		Store:           st,
+		Fetcher:         fetcher,
+		BaseURL:         cfg.BaseURL,
+		AdminUser:       cfg.AdminUser,
+		AdminPassword:   cfg.AdminPassword,
+		DefaultTimezone: cfg.DefaultTimezone,
+		Logger:          logger,
+	})
 	if err != nil {
 		return fmt.Errorf("build web server: %w", err)
 	}

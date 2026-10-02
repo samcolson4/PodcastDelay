@@ -59,7 +59,15 @@ func newTestHarness(t *testing.T) *testHarness {
 	}))
 	t.Cleanup(feedSrv.Close)
 
-	s, err := New(st, source.NewFetcher(), "http://localhost:8080", "admin", "secret", "UTC", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s, err := New(Options{
+		Store:           st,
+		Fetcher:         source.NewFetcher(),
+		BaseURL:         "http://localhost:8080",
+		AdminUser:       "admin",
+		AdminPassword:   "secret",
+		DefaultTimezone: "UTC",
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
