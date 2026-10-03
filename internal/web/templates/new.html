@@ -6,6 +6,10 @@
   <label>Source RSS URL
     <input type="url" name="source_url" required placeholder="https://example.com/feed.xml">
   </label>
+  <label>Premium / bonus RSS URL (optional)
+    <input type="url" name="premium_source_url" placeholder="https://example.com/premium-feed.xml">
+  </label>
+  <p class="muted">A premium feed is merged into the same delayed feed. Each bonus episode comes out the same distance after its free counterpart as it did originally — an hour stays an hour, a day stays a day — whatever cadence the free feed is replaying at.</p>
   <label>Release pace
     <select name="cadence_mode" id="cadence_mode" onchange="document.getElementById('fixed-opts').hidden = this.value !== 'fixed'">
       <option value="fixed">Fixed cadence: one episode every N days</option>

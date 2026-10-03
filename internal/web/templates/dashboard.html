@@ -29,6 +29,7 @@
           {{if .ImageURL}}<img class="art" src="{{.ImageURL}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{else}}<span class="art art-empty">art</span>{{end}}
           <strong>{{.Title}}</strong>
         </div>
+        {{if .PremiumURL}}<div class="merged"><span class="badge merged-badge" data-tooltip="Two source feeds are merged into this one" data-placement="right">2 feeds merged</span> <span class="muted">+ {{.PremiumURL}}</span></div>{{end}}
       </td>
       <td class="progress-cell">
         <div>Ep {{.ReleasedCount}} of {{.TotalEpisodes}}</div>

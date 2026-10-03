@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/samcolson4/podcastdelay/internal/feed"
+	"github.com/samcolson4/podcastdelay/internal/schedule"
 	"github.com/samcolson4/podcastdelay/internal/store"
 )
 
@@ -24,12 +25,22 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("ok"))
 }
 
-// feedETag derives an ETag from (updated_at, highest released
-// position) as docs §3.8 specifies, so podcast apps polling
-// aggressively get cheap 304s.
-func feedETag(sub store.Subscription, highestPosition int) string {
+// feedETag derives an ETag from (updated_at, what has released) as docs
+// §3.8 specifies, so podcast apps polling aggressively get cheap 304s.
+// "What has released" is the number of items and the newest release
+// time rather than the highest position: a melded premium episode's
+// position is at the tail whatever its date, so it can release behind a
+// free episode with a higher position and would otherwise leave the
+// ETag — and the app's view of the feed — unchanged.
+func feedETag(sub store.Subscription, episodes []store.Episode) string {
+	var newest time.Time
+	for _, e := range episodes {
+		if e.ScheduledAt.After(newest) {
+			newest = e.ScheduledAt
+		}
+	}
 	h := fnv.New64a()
-	fmt.Fprintf(h, "%d:%d", sub.UpdatedAt.UnixNano(), highestPosition)
+	fmt.Fprintf(h, "%d:%d:%d", sub.UpdatedAt.UnixNano(), len(episodes), newest.UnixNano())
 	return fmt.Sprintf(`"%x"`, h.Sum64())
 }
 
@@ -54,12 +65,8 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	highestPosition := -1
 	var lastBuild time.Time
 	for _, e := range episodes {
-		if e.Position > highestPosition {
-			highestPosition = e.Position
-		}
 		if e.ScheduledAt.After(lastBuild) {
 			lastBuild = e.ScheduledAt
 		}
@@ -68,7 +75,7 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 		lastBuild = sub.UpdatedAt
 	}
 
-	etag := feedETag(sub, highestPosition)
+	etag := feedETag(sub, episodes)
 	if match := r.Header.Get("If-None-Match"); match != "" && match == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return
@@ -80,7 +87,7 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 	items := make([]feed.Item, 0, len(episodes))
 	for _, e := range episodes {
 		items = append(items, feed.Item{
-			GUID:            fmt.Sprintf("podcastdelay:%s:%s", sub.Token, e.GUID),
+			GUID:            feedGUID(sub.Token, e),
 			Title:           e.Title,
 			Description:     e.Description,
 			Link:            e.Link,
@@ -112,6 +119,20 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 	if err := feed.Render(w, f); err != nil {
 		s.Logger.Error("feed: render failed", "subscription_id", sub.ID, "error", err)
 	}
+}
+
+// feedGUID namespaces an episode's GUID so that subscribing to the real
+// feed as well doesn't deduplicate the two shows into one (docs §3.4).
+// A premium episode carries its role too, because a premium feed is
+// often an ad-free re-cut of the same episodes under the same GUIDs, and
+// the pair has to stay two episodes in the app. The free feed's form is
+// deliberately unchanged: an episode whose GUID moves looks new, and
+// gets re-downloaded.
+func feedGUID(token string, e store.Episode) string {
+	if schedule.NormalizeRole(e.SourceRole) == schedule.RolePremium {
+		return fmt.Sprintf("podcastdelay:%s:premium:%s", token, e.GUID)
+	}
+	return fmt.Sprintf("podcastdelay:%s:%s", token, e.GUID)
 }
 
 // feedChannel maps the cached show metadata onto the renderer's own
