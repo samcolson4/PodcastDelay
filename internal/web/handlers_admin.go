@@ -27,9 +27,18 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	// message above the form, so nothing typed in is lost.
 	fail := func(err error) { s.renderDashboardWithError(w, r, err.Error()) }
 
-	sourceURL := optionalString(r, "source_url")
+	sourceURL, err := optionalFeedURL(r, "source_url")
+	if err != nil {
+		fail(err)
+		return
+	}
 	if sourceURL == nil {
 		fail(errors.New("source_url is required"))
+		return
+	}
+	premiumSourceURL, err := optionalFeedURL(r, "premium_source_url")
+	if err != nil {
+		fail(err)
 		return
 	}
 
@@ -83,16 +92,17 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	}
 
 	_, err = refresh.AddSubscription(r.Context(), s.Store, s.Fetcher, refresh.AddParams{
-		SourceURL:       *sourceURL,
-		TitleOverride:   optionalString(r, "title_override"),
-		CadenceDays:     cadenceDays,
-		CadenceMode:     valueOr(cadenceMode, schedule.ModeFixed),
-		ReleaseTime:     valueOr(releaseTime, defaultReleaseTime),
-		Timezone:        tz,
-		StartAt:         valueOr(startAt, time.Now().In(loc)),
-		SeedCount:       seedCount,
-		EpisodesPerSlot: episodesPerSlot,
-		MaxFeedItems:    maxFeedItems,
+		SourceURL:        *sourceURL,
+		PremiumSourceURL: premiumSourceURL,
+		TitleOverride:    optionalString(r, "title_override"),
+		CadenceDays:      cadenceDays,
+		CadenceMode:      valueOr(cadenceMode, schedule.ModeFixed),
+		ReleaseTime:      valueOr(releaseTime, defaultReleaseTime),
+		Timezone:         tz,
+		StartAt:          valueOr(startAt, time.Now().In(loc)),
+		SeedCount:        seedCount,
+		EpisodesPerSlot:  episodesPerSlot,
+		MaxFeedItems:     maxFeedItems,
 	})
 	if err != nil {
 		s.Logger.Error("admin: add subscription failed", "error", err)
@@ -147,6 +157,20 @@ func (s *Server) handlePatchSubscription(w http.ResponseWriter, r *http.Request)
 	}
 	patch.TitleOverride = optionalString(r, "title_override")
 
+	// The premium feed is handled after the patch lands, because
+	// melding one in has to fetch it and ingest its episodes. A blank
+	// field means "leave it alone" like every other field here; the
+	// remove_premium checkbox is how you unmeld.
+	premiumSourceURL, err := optionalFeedURL(r, "premium_source_url")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	removePremium := formChecked(r, "remove_premium")
+	if removePremium {
+		premiumSourceURL = nil
+	}
+
 	// start_at is wall-clock in the subscription's timezone, which this
 	// same request may be changing.
 	loc, err := time.LoadLocation(valueOr(patch.Timezone, current.Timezone))
@@ -163,7 +187,14 @@ func (s *Server) handlePatchSubscription(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "patch failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := refresh.Reschedule(r.Context(), s.Store, id); err != nil {
+
+	if premiumChange(current, premiumSourceURL, removePremium) {
+		if err := refresh.SetPremiumFeed(r.Context(), s.Store, s.Fetcher, id, premiumSourceURL); err != nil {
+			s.Logger.Error("admin: premium feed change failed", "id", id, "error", err)
+			http.Error(w, "premium feed failed: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+	} else if err := refresh.Reschedule(r.Context(), s.Store, id); err != nil {
 		s.Logger.Error("admin: reschedule after patch failed", "id", id, "error", err)
 		http.Error(w, "reschedule failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -280,7 +311,9 @@ func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := refresh.ScheduleConfigFor(sub, refresh.PubDatesByPosition(episodes))
+	// Preview exactly what saving would produce: the same planner the
+	// refresh loop runs, just not persisted.
+	planned, err := refresh.PlanSchedule(sub, refresh.ScheduleRows(episodes))
 	if err != nil {
 		s.Logger.Error("admin: schedule preview failed", "id", id, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -290,22 +323,22 @@ func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 	type row struct {
 		store.Episode
 		Preview time.Time
+		Premium bool
 	}
 	rows := make([]row, 0, len(episodes))
-	for _, e := range episodes {
-		at := e.ScheduledAt
-		if !e.Locked {
-			if computed, err := cfg.ReleaseAt(e.Position); err == nil {
-				at = computed
-			}
-		}
-		rows = append(rows, row{Episode: e, Preview: at})
+	for i, e := range episodes {
+		rows = append(rows, row{
+			Episode: e,
+			Preview: planned[i].ScheduledAt,
+			Premium: schedule.NormalizeRole(e.SourceRole) == schedule.RolePremium,
+		})
 	}
 
 	s.render(w, "schedule.html", map[string]any{
 		"Subscription": sub,
 		"Title":        s.subscriptionTitle(sub),
 		"Cadence":      cadenceSummary(sub),
+		"PremiumURL":   valueOr(sub.PremiumSourceURL, ""),
 		"Episodes":     rows,
 	})
 }
@@ -316,6 +349,19 @@ func (s *Server) redirectOrOK(w http.ResponseWriter, r *http.Request, location s
 		return
 	}
 	http.Redirect(w, r, location, http.StatusSeeOther)
+}
+
+// premiumChange reports whether this request actually changes which
+// premium feed (if any) is melded in, so an edit that only touches the
+// cadence doesn't go refetching a feed that hasn't moved.
+func premiumChange(current store.Subscription, wanted *string, remove bool) bool {
+	if remove {
+		return current.PremiumSourceURL != nil
+	}
+	if wanted == nil {
+		return false
+	}
+	return current.PremiumSourceURL == nil || *current.PremiumSourceURL != *wanted
 }
 
 // valueOr dereferences p, falling back to def when the field was absent.

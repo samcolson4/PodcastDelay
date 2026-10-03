@@ -2,6 +2,8 @@
 ## What
 A solution for re-publishing a podcast's real RSS feed as a new private feed. It can start releasing from any episode, at any cadence, including mirroring the original release cadence.
 
+If a show has two feeds — the regular one and a premium/bonus one — you can meld them into a single delayed feed. Each bonus episode comes out the same distance after its free counterpart as it did originally: an hour stays an hour, a day stays a day, whatever cadence you're replaying the free feed at.
+
 This is designed only to be run in a homelab or similar. It is single-user, with no support for separate 'accounts'. Audio is never re-hosted — enclosure URLs (and the publisher's analytics prefix) pass through untouched, so your listens still count. See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full (fully-Claude) design write-up.
 
 ## Why
@@ -46,6 +48,14 @@ Add a feed without opening the admin UI:
 ```bash
 ./podcastdelay add https://feeds.example.com/show.xml \
   --every 7d --start tomorrow --seed 2
+
+# ...with the show's premium feed melded in from the start
+./podcastdelay add https://feeds.example.com/show.xml \
+  --premium https://feeds.example.com/show-premium.xml --every 7d
+
+# ...or melded into a show you already have (by feed id or token)
+./podcastdelay meld 1 https://feeds.example.com/show-premium.xml
+./podcastdelay meld 1 --remove
 ```
 
 ## Reachability

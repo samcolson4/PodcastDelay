@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samcolson4/podcastdelay/internal/schedule"
 	"github.com/samcolson4/podcastdelay/internal/source"
 	"github.com/samcolson4/podcastdelay/internal/store"
 )
@@ -392,5 +393,247 @@ func TestSchedulePage_StartAtRoundTrips(t *testing.T) {
 	if !after.StartAt.Truncate(time.Minute).Equal(before.StartAt.Truncate(time.Minute)) {
 		t.Errorf("start_at moved on an unchanged save: got %v, want %v (form value %q)",
 			after.StartAt, before.StartAt, m[1])
+	}
+}
+
+// The same show's premium feed: a bonus episode half an hour after each
+// free one.
+const testPremiumFeed = `<?xml version="1.0"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>Widget Weekly Extra</title>
+  <description>Widgets, bonus.</description>
+  <item>
+    <title>Bonus 1</title>
+    <guid>bonus-1</guid>
+    <pubDate>Mon, 02 Mar 2020 08:30:00 GMT</pubDate>
+    <enclosure url="https://chtbl.com/track/X/cdn.example.com/bonus-1.mp3" length="100" type="audio/mpeg"/>
+  </item>
+  <item>
+    <title>Bonus 2</title>
+    <guid>bonus-2</guid>
+    <pubDate>Mon, 09 Mar 2020 08:30:00 GMT</pubDate>
+    <enclosure url="https://chtbl.com/track/X/cdn.example.com/bonus-2.mp3" length="100" type="audio/mpeg"/>
+  </item>
+</channel>
+</rss>`
+
+// premiumFeedServer serves the premium feed above.
+func (h *testHarness) premiumFeedServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", `"p1"`)
+		w.Write([]byte(testPremiumFeed))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func (h *testHarness) episodeTitles(t *testing.T, subID int64) []string {
+	t.Helper()
+	episodes, err := h.store.ListBySubscription(context.Background(), subID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	titles := make([]string, 0, len(episodes))
+	for _, e := range episodes {
+		titles = append(titles, e.Title)
+	}
+	return titles
+}
+
+func TestCreateSubscriptionWithPremiumFeed_MergesBothIntoOneFeed(t *testing.T) {
+	h := newTestHarness(t)
+	premium := h.premiumFeedServer(t)
+
+	form := url.Values{
+		"source_url":         {h.feedSrv.URL},
+		"premium_source_url": {premium.URL},
+		"cadence_days":       {"7"},
+		"release_time":       {"07:00"},
+		"timezone":           {"UTC"},
+		"start_at":           {time.Now().UTC().Add(-time.Hour).Format(startAtLayout)},
+		"seed_count":         {"1"},
+		"episodes_per_slot":  {"1"},
+	}
+	resp := h.adminRequest(t, http.MethodPost, "/admin/subscriptions", form)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("add with premium feed: got %d:\n%s", resp.StatusCode, body)
+	}
+
+	subs, err := h.store.ListSubscriptions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 1 {
+		t.Fatalf("expected 1 subscription, got %d", len(subs))
+	}
+	sub := subs[0]
+	if sub.PremiumSourceURL == nil || *sub.PremiumSourceURL != premium.URL {
+		t.Fatalf("premium url not stored: %v", sub.PremiumSourceURL)
+	}
+	if titles := h.episodeTitles(t, sub.ID); len(titles) != 4 {
+		t.Fatalf("expected 2 free + 2 premium episodes, got %v", titles)
+	}
+
+	feedResp, err := http.Get(h.http.URL + "/f/" + sub.Token + ".xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer feedResp.Body.Close()
+	feedBody, err := io.ReadAll(feedResp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := string(feedBody)
+
+	// The free feed started an hour ago, so its first episode is out and
+	// the bonus episode published half an hour after it is too. The
+	// second pair is still in the future.
+	for _, want := range []string{"podcastdelay:" + sub.Token + ":guid-1", "podcastdelay:" + sub.Token + ":premium:bonus-1"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("expected %q in the merged feed:\n%s", want, rendered)
+		}
+	}
+	for _, unwanted := range []string{"guid-2", "bonus-2"} {
+		if strings.Contains(rendered, unwanted) {
+			t.Errorf("%q is not due yet but appeared:\n%s", unwanted, rendered)
+		}
+	}
+	// Newest first: the bonus episode released after the free one, so it
+	// leads the feed.
+	if strings.Index(rendered, "Bonus 1") > strings.Index(rendered, "<title>Ep 1</title>") {
+		t.Errorf("expected the later-released bonus episode first:\n%s", rendered)
+	}
+}
+
+func TestFeedGUID_PremiumEpisodesStayDistinct(t *testing.T) {
+	// A premium feed is often an ad-free re-cut of the same episodes
+	// under the same GUIDs. Two episodes rendering one GUID would be
+	// deduplicated into one by the app, so the role is part of it.
+	free := store.Episode{GUID: "guid-1", SourceRole: schedule.RolePrimary}
+	premium := store.Episode{GUID: "guid-1", SourceRole: schedule.RolePremium}
+
+	// The free feed's form is the one docs §3.4 specifies and must not
+	// drift: a GUID that changes looks like a new episode to the app.
+	if got, want := feedGUID("tok", free), "podcastdelay:tok:guid-1"; got != want {
+		t.Errorf("free episode guid = %q, want %q", got, want)
+	}
+	if feedGUID("tok", premium) == feedGUID("tok", free) {
+		t.Errorf("premium episode shares the free one's guid: %q", feedGUID("tok", premium))
+	}
+	// An episode row written before source_role existed reads as free.
+	if got := feedGUID("tok", store.Episode{GUID: "guid-1"}); got != feedGUID("tok", free) {
+		t.Errorf("roleless episode guid = %q, want the free feed's form", got)
+	}
+}
+
+func TestPatchSubscription_MeldsAndUnmeldsAPremiumFeed(t *testing.T) {
+	h := newTestHarness(t)
+	sub := h.addSubscription(t)
+	premium := h.premiumFeedServer(t)
+	id := strconv.FormatInt(sub.ID, 10)
+	ctx := context.Background()
+
+	before, err := h.store.ListBySubscription(ctx, sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/edit",
+		url.Values{"premium_source_url": {premium.URL}})
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("meld: got %d:\n%s", resp.StatusCode, body)
+	}
+
+	melded, err := h.store.GetSubscription(ctx, sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if melded.PremiumSourceURL == nil || *melded.PremiumSourceURL != premium.URL {
+		t.Fatalf("premium url not stored: %v", melded.PremiumSourceURL)
+	}
+	after, err := h.store.ListBySubscription(ctx, sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before)+2 {
+		t.Fatalf("expected the 2 bonus episodes to be ingested, got %v", h.episodeTitles(t, sub.ID))
+	}
+	// The free feed's already-released episode keeps its date.
+	if !after[0].ScheduledAt.Equal(before[0].ScheduledAt) {
+		t.Errorf("melding moved an already-released episode: %v -> %v", before[0].ScheduledAt, after[0].ScheduledAt)
+	}
+
+	// Unmelding takes the bonus episodes with it.
+	resp = h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/edit",
+		url.Values{"premium_source_url": {premium.URL}, "remove_premium": {"1"}})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unmeld: got %d", resp.StatusCode)
+	}
+	unmelded, err := h.store.GetSubscription(ctx, sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unmelded.PremiumSourceURL != nil {
+		t.Errorf("premium url survived removal: %v", *unmelded.PremiumSourceURL)
+	}
+	if titles := h.episodeTitles(t, sub.ID); len(titles) != len(before) {
+		t.Errorf("expected only the free feed's episodes to remain, got %v", titles)
+	}
+}
+
+func TestPremiumFeedURL_MustLookFetchable(t *testing.T) {
+	h := newTestHarness(t)
+
+	resp := h.adminRequest(t, http.MethodPost, "/admin/subscriptions",
+		url.Values{"source_url": {h.feedSrv.URL}, "premium_source_url": {"feeds.example.com/premium"}})
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(body), "premium_source_url") {
+		t.Errorf("expected the form error to name premium_source_url, got:\n%s", body)
+	}
+	subs, err := h.store.ListSubscriptions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 0 {
+		t.Fatalf("expected nothing created, got %d subscriptions", len(subs))
+	}
+
+	sub := h.addSubscription(t)
+	resp = h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+strconv.FormatInt(sub.ID, 10)+"/edit",
+		url.Values{"premium_source_url": {"not a url at all"}})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for an unusable premium url, got %d", resp.StatusCode)
+	}
+}
+
+func TestFeedETag_ChangesWhenAPremiumEpisodeReleases(t *testing.T) {
+	// A premium episode's position is at the tail of the sequence
+	// whatever its date, so an ETag keyed on the highest released
+	// position would not move when one comes out — and the app would
+	// keep getting a 304 for a feed that has changed.
+	sub := store.Subscription{UpdatedAt: time.Date(2026, 1, 1, 7, 0, 0, 0, time.UTC)}
+	free := []store.Episode{
+		{Position: 0, ScheduledAt: time.Date(2026, 1, 1, 7, 0, 0, 0, time.UTC)},
+		{Position: 9, ScheduledAt: time.Date(2026, 1, 8, 7, 0, 0, 0, time.UTC)},
+	}
+	withPremium := append(append([]store.Episode{}, free...), store.Episode{
+		Position: 3, SourceRole: schedule.RolePremium,
+		ScheduledAt: time.Date(2026, 1, 8, 8, 0, 0, 0, time.UTC),
+	})
+
+	if feedETag(sub, free) == feedETag(sub, withPremium) {
+		t.Error("the ETag did not change when a premium episode released")
+	}
+	if feedETag(sub, free) != feedETag(sub, free) {
+		t.Error("the ETag is not stable for an unchanged feed")
 	}
 }

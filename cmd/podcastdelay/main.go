@@ -1,6 +1,7 @@
 // Command podcastdelay serves and manages delayed podcast feeds. Run
 // with no arguments (or "serve") to start the HTTP server; "add" adds a
-// feed from the command line without going through the admin UI;
+// feed from the command line without going through the admin UI; "meld"
+// adds (or removes) a premium feed on a show that already exists;
 // "healthcheck" is what the container's HEALTHCHECK invokes, since a
 // distroless image has no shell or curl.
 package main
@@ -48,8 +49,10 @@ func main() {
 		err = runHealthcheck(args)
 	case "add":
 		err = runAdd(args)
+	case "meld":
+		err = runMeld(args)
 	default:
-		err = fmt.Errorf("unknown command %q (expected serve, add, or healthcheck)", cmd)
+		err = fmt.Errorf("unknown command %q (expected serve, add, meld, or healthcheck)", cmd)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "podcastdelay:", err)
@@ -59,6 +62,23 @@ func main() {
 
 func isFlag(s string) bool {
 	return strings.HasPrefix(s, "-")
+}
+
+// parseArgs parses flags wherever they appear and returns the positional
+// arguments. Go's flag package stops parsing at the first non-flag
+// argument, but `add <url> --every 7d` — the obvious way to write these
+// commands, and the form the README documents — puts the URL first,
+// which would silently leave every flag after it at its default.
+func parseArgs(fs *flag.FlagSet, args []string) []string {
+	var positional []string
+	for {
+		fs.Parse(args)
+		if fs.NArg() == 0 {
+			return positional
+		}
+		positional = append(positional, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
 }
 
 func runServe(args []string) error {
@@ -184,6 +204,7 @@ func runHealthcheck(args []string) error {
 // admin UI: `podcastdelay add <url> --every 7d --start tomorrow --seed 2`.
 func runAdd(args []string) error {
 	fs := flag.NewFlagSet("add", flag.ExitOnError)
+	premium := fs.String("premium", "", "the show's premium/bonus feed URL, melded into the same delayed feed")
 	every := fs.String("every", "7d", `cadence, e.g. "7d" for weekly, or "original" to mirror the show's real release gaps`)
 	start := fs.String("start", "now", `"now", "tomorrow", or RFC3339 (e.g. 2026-01-06T07:00:00Z)`)
 	seed := fs.Int("seed", 1, "episodes you have already heard, released immediately on day one")
@@ -192,12 +213,12 @@ func runAdd(args []string) error {
 	timezone := fs.String("timezone", "", "IANA timezone (defaults to PODCASTDELAY_DEFAULT_TIMEZONE or UTC)")
 	title := fs.String("title", "", "title override for the delayed feed")
 	maxItems := fs.Int("max-feed-items", 0, "cap the rendered feed window (0 = unlimited)")
-	fs.Parse(args)
+	positional := parseArgs(fs, args)
 
-	if fs.NArg() < 1 {
-		return errors.New("usage: podcastdelay add <source-url> [--every 7d] [--start tomorrow] [--seed 1]")
+	if len(positional) < 1 {
+		return errors.New("usage: podcastdelay add <source-url> [--premium <url>] [--every 7d] [--start tomorrow] [--seed 1]")
 	}
-	sourceURL := fs.Arg(0)
+	sourceURL := positional[0]
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -246,18 +267,23 @@ func runAdd(args []string) error {
 	if *maxItems > 0 {
 		maxFeedItems = maxItems
 	}
+	var premiumURL *string
+	if *premium != "" {
+		premiumURL = premium
+	}
 
 	sub, err := refresh.AddSubscription(ctx, st, source.NewFetcher(), refresh.AddParams{
-		SourceURL:       sourceURL,
-		TitleOverride:   titleOverride,
-		CadenceDays:     cadenceDays,
-		CadenceMode:     cadenceMode,
-		ReleaseTime:     *releaseTime,
-		Timezone:        tz,
-		StartAt:         startAt,
-		SeedCount:       *seed,
-		EpisodesPerSlot: *perSlot,
-		MaxFeedItems:    maxFeedItems,
+		SourceURL:        sourceURL,
+		PremiumSourceURL: premiumURL,
+		TitleOverride:    titleOverride,
+		CadenceDays:      cadenceDays,
+		CadenceMode:      cadenceMode,
+		ReleaseTime:      *releaseTime,
+		Timezone:         tz,
+		StartAt:          startAt,
+		SeedCount:        *seed,
+		EpisodesPerSlot:  *perSlot,
+		MaxFeedItems:     maxFeedItems,
 	})
 	if err != nil {
 		return fmt.Errorf("add subscription: %w", err)
@@ -265,6 +291,72 @@ func runAdd(args []string) error {
 
 	fmt.Printf("Added. Feed URL: %s/f/%s.xml\n", cfg.BaseURL, sub.Token)
 	return nil
+}
+
+// runMeld melds a premium feed into a show that already exists, or
+// removes one: `podcastdelay meld <id-or-token> <premium-url>`. The
+// id or token is the one printed by `add` (and shown in the admin UI's
+// feed URL).
+func runMeld(args []string) error {
+	fs := flag.NewFlagSet("meld", flag.ExitOnError)
+	remove := fs.Bool("remove", false, "unmeld the premium feed and delete the episodes that came from it")
+	positional := parseArgs(fs, args)
+
+	if len(positional) < 1 || (len(positional) < 2 && !*remove) {
+		return errors.New("usage: podcastdelay meld <id-or-token> <premium-url> | podcastdelay meld <id-or-token> --remove")
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	st, err := store.Open(ctx, cfg.DBPath())
+	if err != nil {
+		return fmt.Errorf("open store: %w", err)
+	}
+	defer st.Close()
+
+	sub, err := findSubscription(ctx, st, positional[0])
+	if err != nil {
+		return err
+	}
+
+	var premiumURL *string
+	if !*remove {
+		url := positional[1]
+		premiumURL = &url
+	}
+	if err := refresh.SetPremiumFeed(ctx, st, source.NewFetcher(), sub.ID, premiumURL); err != nil {
+		return fmt.Errorf("meld premium feed: %w", err)
+	}
+
+	if *remove {
+		fmt.Printf("Unmelded the premium feed from %s/f/%s.xml\n", cfg.BaseURL, sub.Token)
+		return nil
+	}
+	fmt.Printf("Melded. Feed URL: %s/f/%s.xml\n", cfg.BaseURL, sub.Token)
+	return nil
+}
+
+// findSubscription resolves the one argument a CLI user actually has to
+// hand: either the numeric id or the feed token.
+func findSubscription(ctx context.Context, st *store.Store, ref string) (store.Subscription, error) {
+	if id, err := strconv.ParseInt(ref, 10, 64); err == nil {
+		sub, err := st.GetSubscription(ctx, id)
+		if err != nil {
+			return store.Subscription{}, fmt.Errorf("no feed with id %d: %w", id, err)
+		}
+		return sub, nil
+	}
+	sub, err := st.GetSubscriptionByToken(ctx, ref)
+	if err != nil {
+		return store.Subscription{}, fmt.Errorf("no feed with id or token %q: %w", ref, err)
+	}
+	return sub, nil
 }
 
 func parseCadenceDays(every string) (int, error) {

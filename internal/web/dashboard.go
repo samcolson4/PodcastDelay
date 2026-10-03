@@ -105,6 +105,7 @@ type subscriptionView struct {
 	store.Subscription
 	Title         string
 	Cadence       string
+	PremiumURL    string
 	TotalEpisodes int
 	ReleasedCount int
 	NextReleaseAt *time.Time
@@ -124,6 +125,7 @@ func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) 
 		Subscription: sub,
 		Title:        s.subscriptionTitle(sub),
 		Cadence:      cadenceSummary(sub),
+		PremiumURL:   valueOr(sub.PremiumSourceURL, ""),
 	}
 
 	var nonExcluded []store.Episode

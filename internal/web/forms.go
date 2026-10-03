@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,27 @@ func optionalString(r *http.Request, name string) *string {
 		return nil
 	}
 	return &v
+}
+
+// formChecked reads an HTML checkbox: present (any value) means on.
+// Checkboxes are the one field shape where absence is "off" rather than
+// "leave it alone", because a browser omits an unticked box entirely.
+func formChecked(r *http.Request, name string) bool {
+	return strings.TrimSpace(r.FormValue(name)) != ""
+}
+
+// optionalFeedURL reads a feed URL, rejecting anything we couldn't fetch
+// so a typo surfaces on the form rather than as a background poll error.
+func optionalFeedURL(r *http.Request, name string) (*string, error) {
+	v := optionalString(r, name)
+	if v == nil {
+		return nil, nil
+	}
+	u, err := url.Parse(*v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, fmt.Errorf("%s must be an http(s) URL", name)
+	}
+	return v, nil
 }
 
 // optionalTimezone validates an IANA timezone name.
