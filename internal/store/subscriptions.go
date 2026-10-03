@@ -16,29 +16,30 @@ var ErrNotFound = errors.New("store: not found")
 // NewSubscription is the set of fields needed to create a subscription;
 // timestamps, token and id are assigned by the store.
 type NewSubscription struct {
-	Token           string
-	SourceURL       string
-	TitleOverride   *string
-	CadenceDays     int
-	CadenceMode     string
-	ReleaseTime     string
-	Timezone        string
-	StartAt         time.Time
-	SeedCount       int
-	EpisodesPerSlot int
-	MaxFeedItems    *int
-	ChannelJSON     string
+	Token            string
+	SourceURL        string
+	PremiumSourceURL *string
+	TitleOverride    *string
+	CadenceDays      int
+	CadenceMode      string
+	ReleaseTime      string
+	Timezone         string
+	StartAt          time.Time
+	SeedCount        int
+	EpisodesPerSlot  int
+	MaxFeedItems     *int
+	ChannelJSON      string
 }
 
 func (q *Queries) CreateSubscription(ctx context.Context, n NewSubscription) (Subscription, error) {
 	now := time.Now().UTC()
 	res, err := q.db.ExecContext(ctx, `
 		INSERT INTO subscriptions (
-			token, source_url, title_override, cadence_days, release_time,
+			token, source_url, premium_source_url, title_override, cadence_days, release_time,
 			timezone, start_at, seed_count, episodes_per_slot, shift_seconds,
 			max_feed_items, channel_json, created_at, updated_at, cadence_mode
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
-		n.Token, n.SourceURL, nullString(n.TitleOverride), n.CadenceDays, n.ReleaseTime,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+		n.Token, n.SourceURL, nullString(n.PremiumSourceURL), nullString(n.TitleOverride), n.CadenceDays, n.ReleaseTime,
 		n.Timezone, toDBTime(n.StartAt), n.SeedCount, n.EpisodesPerSlot,
 		nullIntFromIntPtr(n.MaxFeedItems), n.ChannelJSON, toDBTime(now), toDBTime(now),
 		modeOrFixed(n.CadenceMode),
@@ -54,22 +55,25 @@ func (q *Queries) CreateSubscription(ctx context.Context, n NewSubscription) (Su
 }
 
 const subscriptionColumns = `
-	id, token, source_url, title_override, cadence_days, release_time,
+	id, token, source_url, premium_source_url, title_override, cadence_days, release_time,
 	timezone, start_at, seed_count, episodes_per_slot, shift_seconds,
 	paused_at, max_feed_items, channel_json, etag, last_modified,
+	premium_etag, premium_last_modified,
 	last_fetched_at, last_fetch_status, created_at, updated_at, cadence_mode`
 
 func scanSubscription(row rowScanner) (Subscription, error) {
 	var s Subscription
 	var titleOverride, etag, lastModified, lastFetchStatus sql.NullString
+	var premiumSourceURL, premiumETag, premiumLastModified sql.NullString
 	var pausedAt, lastFetchedAt sql.NullString
 	var maxFeedItems sql.NullInt64
 	var startAt, createdAt, updatedAt string
 
 	err := row.Scan(
-		&s.ID, &s.Token, &s.SourceURL, &titleOverride, &s.CadenceDays, &s.ReleaseTime,
+		&s.ID, &s.Token, &s.SourceURL, &premiumSourceURL, &titleOverride, &s.CadenceDays, &s.ReleaseTime,
 		&s.Timezone, &startAt, &s.SeedCount, &s.EpisodesPerSlot, &s.ShiftSeconds,
 		&pausedAt, &maxFeedItems, &s.ChannelJSON, &etag, &lastModified,
+		&premiumETag, &premiumLastModified,
 		&lastFetchedAt, &lastFetchStatus, &createdAt, &updatedAt, &s.CadenceMode,
 	)
 	if err != nil {
@@ -77,8 +81,11 @@ func scanSubscription(row rowScanner) (Subscription, error) {
 	}
 
 	s.TitleOverride = stringPtr(titleOverride)
+	s.PremiumSourceURL = stringPtr(premiumSourceURL)
 	s.ETag = stringPtr(etag)
 	s.LastModified = stringPtr(lastModified)
+	s.PremiumETag = stringPtr(premiumETag)
+	s.PremiumLastModified = stringPtr(premiumLastModified)
 	s.LastFetchStatus = stringPtr(lastFetchStatus)
 	s.MaxFeedItems = intPtrFromNullInt(maxFeedItems)
 
@@ -135,15 +142,20 @@ func (q *Queries) ListSubscriptions(ctx context.Context) ([]Subscription, error)
 // SubscriptionPatch carries only the fields PATCH /admin/subscriptions/{id}
 // is allowed to change; nil means "leave alone".
 type SubscriptionPatch struct {
-	TitleOverride   *string
-	CadenceDays     *int
-	CadenceMode     *string
-	ReleaseTime     *string
-	Timezone        *string
-	StartAt         *time.Time
-	SeedCount       *int
-	EpisodesPerSlot *int
-	MaxFeedItems    **int // set to non-nil to change, pointing at nil to clear
+	TitleOverride *string
+	// PremiumSourceURL is set to non-nil to change the melded premium
+	// feed, pointing at nil to unmeld it. Clearing it also clears the
+	// premium feed's cached validators, so a later re-meld refetches
+	// from scratch.
+	PremiumSourceURL **string
+	CadenceDays      *int
+	CadenceMode      *string
+	ReleaseTime      *string
+	Timezone         *string
+	StartAt          *time.Time
+	SeedCount        *int
+	EpisodesPerSlot  *int
+	MaxFeedItems     **int // set to non-nil to change, pointing at nil to clear
 }
 
 func (q *Queries) PatchSubscription(ctx context.Context, id int64, p SubscriptionPatch) (Subscription, error) {
@@ -154,6 +166,14 @@ func (q *Queries) PatchSubscription(ctx context.Context, id int64, p Subscriptio
 
 	if p.TitleOverride != nil {
 		current.TitleOverride = p.TitleOverride
+	}
+	if p.PremiumSourceURL != nil {
+		// Conditional-GET validators belong to the URL that issued
+		// them, so pointing at a different feed (or none) drops them.
+		if next := *p.PremiumSourceURL; !sameString(next, current.PremiumSourceURL) {
+			current.PremiumSourceURL = next
+			current.PremiumETag, current.PremiumLastModified = nil, nil
+		}
 	}
 	if p.CadenceDays != nil {
 		current.CadenceDays = *p.CadenceDays
@@ -185,10 +205,12 @@ func (q *Queries) PatchSubscription(ctx context.Context, id int64, p Subscriptio
 		UPDATE subscriptions SET
 			title_override = ?, cadence_days = ?, release_time = ?, timezone = ?,
 			start_at = ?, seed_count = ?, episodes_per_slot = ?, max_feed_items = ?,
+			premium_source_url = ?, premium_etag = ?, premium_last_modified = ?,
 			updated_at = ?, cadence_mode = ?
 		WHERE id = ?`,
 		nullString(current.TitleOverride), current.CadenceDays, current.ReleaseTime, current.Timezone,
 		toDBTime(current.StartAt), current.SeedCount, current.EpisodesPerSlot, nullIntFromIntPtr(current.MaxFeedItems),
+		nullString(current.PremiumSourceURL), nullString(current.PremiumETag), nullString(current.PremiumLastModified),
 		toDBTime(now), current.CadenceMode, id,
 	)
 	if err != nil {
@@ -251,12 +273,27 @@ func (q *Queries) ResumeSubscription(ctx context.Context, id int64, now time.Tim
 	return nil
 }
 
+// FetchState is the outcome of one poll attempt: the conditional-GET
+// validators each of the show's feeds handed back, and a single status
+// line describing how the attempt went.
+type FetchState struct {
+	ETag                *string
+	LastModified        *string
+	PremiumETag         *string
+	PremiumLastModified *string
+	FetchedAt           time.Time
+	Status              string
+}
+
 // UpdateFetchState records the outcome of a poll attempt.
-func (q *Queries) UpdateFetchState(ctx context.Context, id int64, etag, lastModified *string, fetchedAt time.Time, status string) error {
+func (q *Queries) UpdateFetchState(ctx context.Context, id int64, fs FetchState) error {
 	_, err := q.db.ExecContext(ctx, `
-		UPDATE subscriptions SET etag = ?, last_modified = ?, last_fetched_at = ?, last_fetch_status = ?, updated_at = ?
+		UPDATE subscriptions SET
+			etag = ?, last_modified = ?, premium_etag = ?, premium_last_modified = ?,
+			last_fetched_at = ?, last_fetch_status = ?, updated_at = ?
 		WHERE id = ?`,
-		nullString(etag), nullString(lastModified), toDBTime(fetchedAt), status, toDBTime(fetchedAt), id,
+		nullString(fs.ETag), nullString(fs.LastModified), nullString(fs.PremiumETag), nullString(fs.PremiumLastModified),
+		toDBTime(fs.FetchedAt), fs.Status, toDBTime(fs.FetchedAt), id,
 	)
 	if err != nil {
 		return fmt.Errorf("store: update fetch state %d: %w", id, err)
@@ -264,14 +301,18 @@ func (q *Queries) UpdateFetchState(ctx context.Context, id int64, etag, lastModi
 	return nil
 }
 
-// UpdateSourceURL persists a new source URL after a permanent (301/308)
-// redirect — feed migrations are routine and shouldn't require manual
-// intervention (docs §10).
-func (q *Queries) UpdateSourceURL(ctx context.Context, id int64, sourceURL string) error {
-	_, err := q.db.ExecContext(ctx, `UPDATE subscriptions SET source_url = ?, updated_at = ? WHERE id = ?`,
+// UpdateSourceURL persists a new URL for one of a show's feeds after a
+// permanent (301/308) redirect — feed migrations are routine and
+// shouldn't require manual intervention (docs §10).
+func (q *Queries) UpdateSourceURL(ctx context.Context, id int64, role, sourceURL string) error {
+	column := "source_url"
+	if schedule.NormalizeRole(role) == schedule.RolePremium {
+		column = "premium_source_url"
+	}
+	_, err := q.db.ExecContext(ctx, `UPDATE subscriptions SET `+column+` = ?, updated_at = ? WHERE id = ?`,
 		sourceURL, toDBTime(time.Now().UTC()), id)
 	if err != nil {
-		return fmt.Errorf("store: update source url %d: %w", id, err)
+		return fmt.Errorf("store: update %s url %d: %w", role, id, err)
 	}
 	return nil
 }
@@ -284,6 +325,14 @@ func (q *Queries) UpdateChannelJSON(ctx context.Context, id int64, channelJSON s
 		return fmt.Errorf("store: update channel json %d: %w", id, err)
 	}
 	return nil
+}
+
+// sameString compares two optional strings by value.
+func sameString(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // modeOrFixed guards the cadence_mode column against unknown values:

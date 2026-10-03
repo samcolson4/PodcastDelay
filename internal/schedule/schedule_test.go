@@ -298,3 +298,219 @@ func TestNormalizeReleaseTime(t *testing.T) {
 		}
 	}
 }
+
+// ptrTime is the shape episodes carry publish dates in.
+func ptrTime(t time.Time) *time.Time { return &t }
+
+func TestRecompute_PremiumRidesWithItsFreeEpisode(t *testing.T) {
+	loc := mustLoc(t, "UTC")
+	start := time.Date(2026, 1, 1, 7, 0, 0, 0, loc)
+	cfg := Config{
+		StartAt:         start,
+		CadenceDays:     7,
+		ReleaseTime:     "07:00",
+		Location:        loc,
+		SeedCount:       1,
+		EpisodesPerSlot: 1,
+	}
+
+	// The show published weekly on Mondays at 08:00; its premium feed
+	// put out a bonus episode a day and an hour after the first, and an
+	// hour after the second.
+	free1 := time.Date(2020, 3, 2, 8, 0, 0, 0, loc)
+	free2 := time.Date(2020, 3, 9, 8, 0, 0, 0, loc)
+	free3 := time.Date(2020, 3, 16, 8, 0, 0, 0, loc)
+	episodes := []Episode{
+		{Position: 0, Role: RolePrimary, PubDate: ptrTime(free1)},
+		{Position: 1, Role: RolePrimary, PubDate: ptrTime(free2)},
+		{Position: 2, Role: RolePrimary, PubDate: ptrTime(free3)},
+		{Position: 3, Role: RolePremium, PubDate: ptrTime(free1.Add(25 * time.Hour))},
+		{Position: 4, Role: RolePremium, PubDate: ptrTime(free2.Add(time.Hour))},
+	}
+
+	got, err := Recompute(cfg, episodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The free feed is replayed weekly from start; each premium episode
+	// keeps its real distance from the free episode it belongs with.
+	want := []time.Time{
+		start,
+		time.Date(2026, 1, 8, 7, 0, 0, 0, loc),
+		time.Date(2026, 1, 15, 7, 0, 0, 0, loc),
+		start.Add(25 * time.Hour),
+		time.Date(2026, 1, 8, 8, 0, 0, 0, loc),
+	}
+	for i, w := range want {
+		if !got[i].ScheduledAt.Equal(w) {
+			t.Errorf("position %d: got %v, want %v", i, got[i].ScheduledAt, w)
+		}
+	}
+}
+
+func TestRecompute_PremiumAnchorsToLockedFreeEpisode(t *testing.T) {
+	loc := mustLoc(t, "UTC")
+	start := time.Date(2026, 1, 1, 7, 0, 0, 0, loc)
+	cfg := Config{StartAt: start, CadenceDays: 7, ReleaseTime: "07:00", Location: loc, SeedCount: 1, EpisodesPerSlot: 1}
+
+	free := time.Date(2020, 3, 2, 8, 0, 0, 0, loc)
+	// The free episode already went out at a time the formula no longer
+	// agrees with; its premium companion must follow the real release.
+	releasedAt := time.Date(2025, 12, 25, 6, 30, 0, 0, loc)
+	episodes := []Episode{
+		{Position: 0, Role: RolePrimary, PubDate: ptrTime(free), ScheduledAt: releasedAt, Locked: true},
+		{Position: 1, Role: RolePremium, PubDate: ptrTime(free.Add(2 * time.Hour))},
+	}
+
+	got, err := Recompute(cfg, episodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := releasedAt.Add(2 * time.Hour); !got[1].ScheduledAt.Equal(want) {
+		t.Errorf("premium episode: got %v, want %v", got[1].ScheduledAt, want)
+	}
+}
+
+func TestRecompute_PremiumEdgeCases(t *testing.T) {
+	loc := mustLoc(t, "UTC")
+	start := time.Date(2026, 1, 1, 7, 0, 0, 0, loc)
+	cfg := Config{StartAt: start, CadenceDays: 7, ReleaseTime: "07:00", Location: loc, SeedCount: 1, EpisodesPerSlot: 1}
+
+	free1 := time.Date(2020, 3, 2, 8, 0, 0, 0, loc)
+	free2 := time.Date(2020, 3, 9, 8, 0, 0, 0, loc)
+	episodes := []Episode{
+		{Position: 0, Role: RolePrimary, PubDate: ptrTime(free1)},
+		{Position: 1, Role: RolePrimary, PubDate: ptrTime(free2)},
+		// Older than the whole free feed: comes out with episode one
+		// rather than before the feed starts.
+		{Position: 2, Role: RolePremium, PubDate: ptrTime(free1.AddDate(-1, 0, 0))},
+		// Backfilled behind the one before it: queues after it instead
+		// of jumping the line.
+		{Position: 3, Role: RolePremium, PubDate: ptrTime(free1.Add(time.Hour))},
+		// No date at all: rides behind the previous premium episode.
+		{Position: 4, Role: RolePremium},
+	}
+
+	got, err := Recompute(cfg, episodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []time.Time{
+		start,
+		time.Date(2026, 1, 8, 7, 0, 0, 0, loc),
+		start,
+		start.Add(time.Hour),
+		start.Add(time.Hour + time.Minute),
+	}
+	for i, w := range want {
+		if !got[i].ScheduledAt.Equal(w) {
+			t.Errorf("position %d: got %v, want %v", i, got[i].ScheduledAt, w)
+		}
+	}
+}
+
+func TestRecompute_PremiumInOriginalCadence(t *testing.T) {
+	loc := mustLoc(t, "UTC")
+	start := time.Date(2026, 1, 1, 7, 0, 0, 0, loc)
+	cfg := Config{StartAt: start, Location: loc, SeedCount: 1, EpisodesPerSlot: 1, Mode: ModeOriginal}
+
+	free1 := time.Date(2020, 3, 2, 8, 0, 0, 0, loc)
+	free2 := free1.AddDate(0, 0, 7)
+	episodes := []Episode{
+		{Position: 0, Role: RolePrimary, PubDate: ptrTime(free1)},
+		{Position: 1, Role: RolePrimary, PubDate: ptrTime(free2)},
+		{Position: 2, Role: RolePremium, PubDate: ptrTime(free2.Add(90 * time.Minute))},
+	}
+
+	got, err := Recompute(cfg, episodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Original cadence replays the free feed's own 7-day gap, and the
+	// premium episode keeps its 90 minutes on top of it.
+	wantFree2 := start.AddDate(0, 0, 7)
+	if !got[1].ScheduledAt.Equal(wantFree2) {
+		t.Errorf("free episode 2: got %v, want %v", got[1].ScheduledAt, wantFree2)
+	}
+	if want := wantFree2.Add(90 * time.Minute); !got[2].ScheduledAt.Equal(want) {
+		t.Errorf("premium episode: got %v, want %v", got[2].ScheduledAt, want)
+	}
+}
+
+func TestRecompute_PremiumEpisodesDoNotConsumeCadenceSlots(t *testing.T) {
+	loc := mustLoc(t, "UTC")
+	start := time.Date(2026, 1, 1, 7, 0, 0, 0, loc)
+	cfg := Config{StartAt: start, CadenceDays: 7, ReleaseTime: "07:00", Location: loc, SeedCount: 1, EpisodesPerSlot: 1}
+
+	day := func(d int) *time.Time { x := time.Date(2020, 3, d, 8, 0, 0, 0, loc); return &x }
+	// A premium episode sits between the free ones in ingest position
+	// (it was melded in later, so it has a tail position) — the free
+	// feed's pace must be counted over free episodes only.
+	episodes := []Episode{
+		{Position: 0, Role: RolePrimary, PubDate: day(2)},
+		{Position: 1, Role: RolePremium, PubDate: day(3)},
+		{Position: 2, Role: RolePrimary, PubDate: day(9)},
+		{Position: 3, Role: RolePrimary, PubDate: day(16)},
+	}
+
+	got, err := Recompute(cfg, episodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 1, 8, 7, 0, 0, 0, loc); !got[2].ScheduledAt.Equal(want) {
+		t.Errorf("second free episode: got %v, want %v", got[2].ScheduledAt, want)
+	}
+	if want := time.Date(2026, 1, 15, 7, 0, 0, 0, loc); !got[3].ScheduledAt.Equal(want) {
+		t.Errorf("third free episode: got %v, want %v", got[3].ScheduledAt, want)
+	}
+}
+
+func TestRecompute_LeavesExcludedUntouched(t *testing.T) {
+	loc := mustLoc(t, "UTC")
+	start := time.Date(2026, 1, 1, 7, 0, 0, 0, loc)
+	cfg := Config{StartAt: start, CadenceDays: 7, ReleaseTime: "07:00", Location: loc, SeedCount: 1, EpisodesPerSlot: 1}
+
+	frozen := time.Date(1999, 1, 1, 0, 0, 0, 0, loc)
+	episodes := []Episode{
+		{Position: 0, Role: RolePrimary},
+		{Position: 1, Role: RolePrimary, ScheduledAt: frozen, Excluded: true},
+		{Position: 2, Role: RolePrimary},
+	}
+
+	got, err := Recompute(cfg, episodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got[1].ScheduledAt.Equal(frozen) {
+		t.Errorf("excluded episode moved: got %v", got[1].ScheduledAt)
+	}
+	// Excluding leaves a gap rather than pulling the next episode
+	// forward: position 2 still releases in the second cadence slot.
+	if want := time.Date(2026, 1, 15, 7, 0, 0, 0, loc); !got[2].ScheduledAt.Equal(want) {
+		t.Errorf("episode after the excluded one: got %v, want %v", got[2].ScheduledAt, want)
+	}
+}
+
+func TestApplyLocks_SkipsExcluded(t *testing.T) {
+	now := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	got := ApplyLocks(now, []Episode{
+		{Position: 0, ScheduledAt: now.AddDate(0, 0, -1), Excluded: true},
+	})
+	if got[0].Locked {
+		t.Error("an excluded episode should not be locked")
+	}
+}
+
+func TestNormalizeRole(t *testing.T) {
+	for in, want := range map[string]string{
+		"primary":  RolePrimary,
+		"premium":  RolePremium,
+		"":         RolePrimary,
+		"nonsense": RolePrimary,
+	} {
+		if got := NormalizeRole(in); got != want {
+			t.Errorf("NormalizeRole(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

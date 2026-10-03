@@ -10,15 +10,16 @@
 <body>
 <p><a href="/admin">&larr; back to feeds</a></p>
 <h1>{{.Title}}</h1>
-<p class="muted">{{.Cadence}}, seed {{.Subscription.SeedCount}}.<br>{{.Subscription.SourceURL}}</p>
+<p class="muted">{{.Cadence}}, seed {{.Subscription.SeedCount}}.<br>{{.Subscription.SourceURL}}{{if .PremiumURL}}<br>+ premium: {{.PremiumURL}}{{end}}</p>
 
 <table>
-  <thead><tr><th>#</th><th>Title</th><th>Release</th><th>Locked</th><th></th></tr></thead>
+  <thead><tr><th>#</th><th>Title</th><th>Feed</th><th>Release</th><th>Locked</th><th></th></tr></thead>
   <tbody>
   {{range .Episodes}}
     <tr class="{{if .Excluded}}excluded{{end}}">
       <td>{{.Position}}</td>
       <td>{{.Title}}</td>
+      <td class="muted">{{if .Premium}}premium{{else}}free{{end}}</td>
       <td>{{fmtTime .Preview}}</td>
       <td>{{if .Locked}}yes{{else}}no{{end}}</td>
       <td>
@@ -51,6 +52,16 @@
     <div><label>Seed count<input type="number" name="seed_count" min="0" value="{{.Subscription.SeedCount}}"></label></div>
     <div><label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="{{.Subscription.EpisodesPerSlot}}"></label></div>
   </div>
+  <label>Premium / bonus RSS URL
+    <input type="url" name="premium_source_url" value="{{.PremiumURL}}" placeholder="https://example.com/premium-feed.xml">
+  </label>
+  <p class="muted">Saving a premium URL melds that feed into this one straight away:
+  each bonus episode releases the same distance after its free counterpart as it
+  did originally.{{if .PremiumURL}} Tick below to unmeld it again — that deletes
+  the episodes that came from it.{{end}}</p>
+  {{if .PremiumURL}}
+  <label class="checkbox"><input type="checkbox" name="remove_premium" value="1"> Remove the premium feed and its episodes</label>
+  {{end}}
   <p class="muted">Only unlocked (not-yet-released) episodes move when you save.</p>
   <p><button type="submit">Save &amp; reschedule</button></p>
 </form>
