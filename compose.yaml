@@ -9,17 +9,11 @@ services:
     environment:
       PODCASTDELAY_BASE_URL: ${PODCASTDELAY_BASE_URL:-https://podcasts.example.com}
       PODCASTDELAY_ADMIN_USER: ${PODCASTDELAY_ADMIN_USER:-admin}
-      PODCASTDELAY_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      PODCASTDELAY_ADMIN_PASSWORD: ${PODCASTDELAY_ADMIN_PASSWORD:?set PODCASTDELAY_ADMIN_PASSWORD in .env}
       PODCASTDELAY_DEFAULT_TIMEZONE: ${PODCASTDELAY_DEFAULT_TIMEZONE:-UTC}
-    secrets:
-      - admin_password
     healthcheck:
       test: ["CMD", "/podcastdelay", "healthcheck"]
       interval: 60s
 
 volumes:
   podcastdelay-data:
-
-secrets:
-  admin_password:
-    file: ./admin_password.txt

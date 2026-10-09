@@ -15,8 +15,7 @@ PodcastDelay aims to solve that, by creating personalised feeds.
 
 ## Quick start (Docker Compose)
 ```bash
-cp .env.example .env   # then set PODCASTDELAY_BASE_URL and PODCASTDELAY_ADMIN_USER
-echo "a-strong-password" > admin_password.txt
+cp .env.example .env   # then set PODCASTDELAY_BASE_URL, PODCASTDELAY_ADMIN_USER and PODCASTDELAY_ADMIN_PASSWORD
 docker compose up -d
 ```
 

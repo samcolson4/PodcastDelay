@@ -453,25 +453,19 @@ services:
     environment:
       PODCASTDELAY_BASE_URL: https://podcasts.example.com
       PODCASTDELAY_ADMIN_USER: sam
-      PODCASTDELAY_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      PODCASTDELAY_ADMIN_PASSWORD: ${PODCASTDELAY_ADMIN_PASSWORD:?set PODCASTDELAY_ADMIN_PASSWORD in .env}
       PODCASTDELAY_DEFAULT_TIMEZONE: Europe/London
-    secrets:
-      - admin_password
     healthcheck:
       test: ["CMD", "/podcastdelay", "healthcheck"]
       interval: 60s
 
 volumes:
   podcastdelay-data:
-
-secrets:
-  admin_password:
-    file: ./admin_password.txt
 ```
 
-Supporting a `_FILE` suffix on the password (read the secret from a file rather
-than the environment) is a small convention that self-hosters expect and costs
-about ten lines. The healthcheck invokes the binary itself rather than curl,
+The password comes from `.env` via the environment. The app also supports a
+`_FILE` suffix (read the secret from a file, e.g. a Docker secret) for anyone
+who prefers that. The healthcheck invokes the binary itself rather than curl,
 since a distroless image has no shell or HTTP client.
 
 ### 9.4 Reachability is the real constraint, not compute
