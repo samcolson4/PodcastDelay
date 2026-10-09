@@ -1,0 +1,148 @@
+/* PodcastDelay admin — small layer on top of Pico. */
+/* Pico's light-theme text is a blue-grey; use true black for text and headings (dark theme untouched). */
+:root[data-theme="light"] {
+  --pico-color: #000;
+  --pico-h1-color: #000; --pico-h2-color: #000; --pico-h3-color: #000;
+  --pico-h4-color: #000; --pico-h5-color: #000; --pico-h6-color: #000;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --pico-color: #000;
+    --pico-h1-color: #000; --pico-h2-color: #000; --pico-h3-color: #000;
+    --pico-h4-color: #000; --pico-h5-color: #000; --pico-h6-color: #000;
+  }
+}
+
+main.container { max-width: 1400px; padding-top: 0.75rem; }
+.site-header { border-bottom: 1px solid var(--pico-muted-border-color); margin-bottom: 0; }
+.site-header nav.top { min-height: 0; }
+.site-header nav.top li { padding-top: 0.1rem; padding-bottom: 0.1rem; }
+nav.top { margin-bottom: 0; }
+nav.top .brand { display: inline-flex; align-items: center; font-weight: 700; font-size: 1.35rem; line-height: 1.2; text-decoration: none; }
+.brand-podcast { color: #8d4cc6; } /* the logo's purple */
+.brand-delay { color: #000; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand-delay { color: #fff; } /* black would vanish on a dark page */
+}
+:root[data-theme="dark"] .brand-delay { color: #fff; }
+
+
+nav.top { align-items: center; }
+
+/* Icon-only theme switch: auto / light / dark */
+.theme-switch { display: inline-flex; border: 1px solid var(--pico-muted-border-color); border-radius: 999px; overflow: hidden; }
+.theme-switch button {
+  display: flex; align-items: center; justify-content: center;
+  width: 2.2rem; height: 2rem; margin: 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--pico-muted-color); box-shadow: none;
+}
+.theme-switch button:hover { color: var(--pico-color); background: var(--pico-muted-border-color); }
+.theme-switch button[aria-pressed="true"] { background: #8d4cc6; color: #fff; }
+
+.table-wrap { overflow: visible; } /* the actions menu must not be clipped */
+table { font-size: 0.85rem; }
+table td, table th { vertical-align: top; padding: 0.5rem 0.5rem; }
+table th { white-space: nowrap; }
+td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; overflow-wrap: anywhere; }
+.muted { color: var(--pico-muted-color); font-size: 0.85rem; }
+
+/* Compact buttons inside tables */
+
+/* Actions "⋯" menu (Pico dropdown, right-aligned, no chevron) */
+.actions { width: 1%; }
+.actions details.dropdown { margin: 0; width: auto; }
+.actions details.dropdown > summary {
+  display: flex; align-items: center; justify-content: center;
+  width: 2.2rem; height: 1.8rem; margin: 0; padding: 0; font-size: 1.1rem; line-height: 1; text-align: center;
+}
+.actions details.dropdown > summary::after { display: none !important; background-image: none !important; content: none !important; }
+.actions details.dropdown ul { left: auto; right: 0; width: max-content; min-width: 9rem; white-space: nowrap; }
+.actions details.dropdown ul li { padding: 0; }
+.actions li form { margin: 0; }
+.actions details.dropdown ul li button, .actions details.dropdown ul li a {
+  display: block; width: 100%; margin: 0; padding: 0.5rem 1rem; text-align: left; text-decoration: none; box-sizing: border-box;
+  background: none; border: 0; color: inherit; font-size: 0.85rem; cursor: pointer;
+}
+.actions details.dropdown ul li button:hover, .actions details.dropdown ul li a:hover { background: var(--pico-dropdown-hover-background-color); }
+.actions details.dropdown ul li button.danger { color: var(--pico-del-color); }
+.url-cell { overflow-wrap: anywhere; }
+
+/* Status badges */
+.badge { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+.badge.ok { background: #1f8a4c22; color: #1f8a4c; }
+.badge.warn { background: #c4770022; color: #c47700; }
+.badge.error { background: #c0392b22; color: var(--pico-del-color); }
+.badge.paused { background: var(--pico-muted-border-color); color: var(--pico-muted-color); }
+.status-msg { display: block; margin-top: 0.25rem; overflow-wrap: anywhere; }
+
+form.htmx-request { opacity: 0.6; pointer-events: none; }
+
+/* Toast */
+#toast {
+  position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%) translateY(2rem);
+  background: var(--pico-contrast-background); color: var(--pico-contrast-inverse);
+  padding: 0.6rem 1.1rem; border-radius: var(--pico-border-radius); box-shadow: 0 4px 16px #0004;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s; z-index: 1000; max-width: 90vw;
+}
+#toast.show { opacity: 1; transform: translateX(-50%); }
+#toast.error { background: var(--pico-del-color); color: #fff; }
+
+.error-banner { border-left: 4px solid var(--pico-del-color); }
+.locked { opacity: 0.6; }
+.excluded td { text-decoration: line-through; opacity: 0.5; }
+.excluded td:last-child { text-decoration: none; opacity: 1; }
+
+/* Page heading row with the "+ Add feed" button */
+.page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.page-head h1 { margin: 0; }
+a.add-btn {
+  display: inline-flex; align-items: center; gap: 0.5rem; flex: none;
+  margin: 0; padding: 0.6rem 1.1rem; border-radius: 10px; font-weight: 600; text-decoration: none;
+}
+
+/* Brand purple (from the logo) for primary calls to action */
+.btn-brand, .btn-brand.btn-brand:hover, .btn-brand.btn-brand:focus, .btn-brand.btn-brand:active {
+  --pico-background-color: #8d4cc6;
+  --pico-border-color: #8d4cc6;
+  --pico-color: #fff;
+}
+.btn-brand.btn-brand:hover, .btn-brand.btn-brand:active { --pico-background-color: #7a3fb0; --pico-border-color: #7a3fb0; }
+.btn-brand { --pico-box-shadow: none; }
+.btn-brand:focus-visible { --pico-box-shadow: 0 0 0 var(--pico-outline-width) #8d4cc655; }
+
+/* Solid red for destructive buttons outside the actions menu (e.g. Exclude) */
+button.danger:not(.outline), button.danger:not(.outline):hover, button.danger:not(.outline):focus {
+  --pico-background-color: #c0392b;
+  --pico-border-color: #c0392b;
+  --pico-color: #fff;
+}
+button.danger:not(.outline):hover { --pico-background-color: #a5301f; --pico-border-color: #a5301f; }
+
+/* Schedule page: "Hide released episodes" */
+#episodes.hide-released tr[data-released="true"] { display: none; }
+
+/* Feeds table */
+table { font-size: 0.95rem; }
+table th { font-size: 0.85rem; font-weight: 500; text-transform: none; color: var(--pico-muted-color); white-space: nowrap; }
+table td { vertical-align: middle; padding: 0.9rem 0.75rem; }
+.show { display: flex; align-items: center; gap: 0.75rem; }
+.art { width: 44px; height: 44px; flex: none; border-radius: 8px; object-fit: cover; background: var(--pico-muted-border-color); }
+.art-empty { display: flex; align-items: center; justify-content: center; font-size: 0.7rem; color: var(--pico-muted-color); }
+.progress-cell { min-width: 11rem; }
+.progress-cell progress { display: block; height: 4px; margin: 0.35rem 0; color: #8d4cc6; }
+.progress-cell progress::-webkit-progress-value { background: #8d4cc6; }
+.progress-cell progress::-moz-progress-bar { background: #8d4cc6; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; }
+.row-actions button[data-copy] { width: auto; margin: 0; padding: 0.4rem 0.8rem; font-size: 0.85rem; white-space: nowrap; }
+
+/* "⋯" menu trigger: no box, just the dots */
+.actions details.dropdown > summary,
+.actions details.dropdown > summary:hover,
+.actions details.dropdown > summary:focus,
+.actions details.dropdown[open] > summary {
+  background: transparent; border-color: transparent; box-shadow: none;
+  --pico-background-color: transparent; --pico-border-color: transparent; --pico-box-shadow: none;
+  color: var(--pico-muted-color);
+}
+.actions details.dropdown > summary:hover, .actions details.dropdown[open] > summary { color: var(--pico-color); }
+.actions details.dropdown > summary:focus-visible { outline: 2px solid #8d4cc655; outline-offset: 2px; }

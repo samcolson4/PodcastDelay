@@ -1,26 +1,47 @@
-{{/* Styles shared by every admin page. Both pages are plain
-     server-rendered HTML with no build step, so this is the whole of the
-     "design system". */}}
-{{define "styles"}}
-<style>
-  :root { color-scheme: light dark; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; line-height: 1.4; }
-  h1 { font-size: 1.4rem; }
-  h2 { font-size: 1.1rem; margin-top: 2.5rem; }
-  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #8884; vertical-align: top; }
-  th { font-size: 0.8rem; text-transform: uppercase; opacity: 0.7; }
-  button { cursor: pointer; }
-  form.inline { display: inline; }
-  form.card { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
-  form.card label { display: block; margin-top: 0.6rem; font-size: 0.85rem; }
-  form.card input, form.card select { width: 100%; padding: 0.35rem; box-sizing: border-box; }
-  .row { display: flex; gap: 1rem; }
-  .row > div { flex: 1; }
-  .muted { opacity: 0.65; font-size: 0.85rem; }
-  .error { color: #c00; margin-top: 1rem; }
-  .feed-url { font-family: ui-monospace, monospace; font-size: 0.8rem; word-break: break-all; }
-  .actions button { margin: 0 0.15rem 0.15rem 0; }
-  .excluded { text-decoration: line-through; opacity: 0.5; }
-</style>
+{{define "header"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{.}} — PodcastDelay.</title>
+<script>
+// Apply the saved theme before first paint (no flash). No saved value = auto (follow the system).
+try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+</script>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+<link rel="icon" type="image/png" href="/static/logo.png">
+<link rel="apple-touch-icon" href="/static/logo.png">
+<link rel="stylesheet" href="/static/pico.min.css">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="site-header"><div class="container">
+<nav class="top">
+  <ul><li><a class="brand" href="/admin"><span><span class="brand-podcast">Podcast</span><span class="brand-delay">Delay.</span></span></a></li></ul>
+  <ul><li>
+    <div class="theme-switch" role="group" aria-label="Colour theme">
+      <button type="button" data-theme-value="auto" title="Auto (follow system)" aria-label="Auto theme">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>
+      </button>
+      <button type="button" data-theme-value="light" title="Light" aria-label="Light theme">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+      <button type="button" data-theme-value="dark" title="Dark" aria-label="Dark theme">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+    </div>
+  </li></ul>
+</nav>
+</div></header>
+<main class="container">
+{{end}}
+
+{{define "footer"}}
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="/static/htmx.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
 {{end}}

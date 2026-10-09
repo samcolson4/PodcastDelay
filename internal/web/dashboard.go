@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/samcolson4/podcastdelay/internal/schedule"
@@ -41,6 +44,18 @@ var templateFuncs = template.FuncMap{
 		}
 		return t.Local().Format(displayTimeLayout)
 	},
+	"fmtDateOrNil": func(t *time.Time) string {
+		if t == nil {
+			return "—"
+		}
+		return t.Local().Format("2 Jan 2006")
+	},
+	"fmtClockOrNil": func(t *time.Time) string {
+		if t == nil {
+			return ""
+		}
+		return t.Local().Format("15:04")
+	},
 	// inputTime renders t for <input type="datetime-local">, in the
 	// timezone the form will interpret it back in — otherwise saving the
 	// edit form unchanged would silently shift start_at by the zone offset.
@@ -70,17 +85,6 @@ func titleOverrideOr(sub store.Subscription, fallback string) string {
 	return fallback
 }
 
-// subscriptionTitle is the admin-facing name of a show: the override, the
-// title the publisher gave it, or (before the first successful fetch) the
-// source URL.
-func (s *Server) subscriptionTitle(sub store.Subscription) string {
-	title := titleOverrideOr(sub, s.channelMeta(sub).Title)
-	if title == "" {
-		title = sub.SourceURL
-	}
-	return title
-}
-
 // cadenceSummary describes a subscription's release pace in one line, so
 // both admin pages say the same thing about it.
 func cadenceSummary(sub store.Subscription) string {
@@ -103,14 +107,42 @@ func cadenceSummary(sub store.Subscription) string {
 // up in 2029"), and next release.
 type subscriptionView struct {
 	store.Subscription
-	Title         string
-	Cadence       string
-	TotalEpisodes int
-	ReleasedCount int
-	NextReleaseAt *time.Time
-	CaughtUpAt    *time.Time
-	IsCaughtUp    bool
-	FetchStatus   string
+	Title          string
+	Cadence        string
+	TotalEpisodes  int
+	ReleasedCount  int
+	NextReleaseAt  *time.Time
+	CaughtUpAt     *time.Time
+	IsCaughtUp     bool
+	LastFetchError string
+	// FetchStatus is a display bucket for the last fetch: "ok",
+	// "unchanged", "error", or "" if the feed hasn't been fetched yet.
+	FetchStatus string
+	ImageURL    string
+	SourceHost  string
+	// CaughtUpIn is a rough "~12 yrs" until the last episode releases;
+	// empty once caught up.
+	CaughtUpIn string
+}
+
+// approxUntil renders a coarse, human duration like "~12 yrs".
+func approxUntil(d time.Duration) string {
+	days := int(d.Hours() / 24)
+	switch {
+	case days >= 365:
+		n := (days + 182) / 365
+		if n == 1 {
+			return "~1 yr"
+		}
+		return "~" + strconv.Itoa(n) + " yrs"
+	case days >= 30:
+		return "~" + strconv.Itoa((days+15)/30) + " mo"
+	case days >= 7:
+		return "~" + strconv.Itoa(days/7) + " wks"
+	case days >= 1:
+		return "~" + strconv.Itoa(days) + " days"
+	}
+	return "<1 day"
 }
 
 func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) (subscriptionView, error) {
@@ -120,10 +152,20 @@ func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) 
 	}
 
 	now := time.Now().UTC()
+	meta := s.channelMeta(sub)
 	v := subscriptionView{
 		Subscription: sub,
-		Title:        s.subscriptionTitle(sub),
+		Title:        titleOverrideOr(sub, meta.Title),
 		Cadence:      cadenceSummary(sub),
+		ImageURL:     meta.ImageURL,
+	}
+	if v.Title == "" {
+		v.Title = sub.SourceURL
+	}
+	if u, err := url.Parse(sub.SourceURL); err == nil && u.Hostname() != "" {
+		v.SourceHost = strings.TrimPrefix(u.Hostname(), "www.")
+	} else {
+		v.SourceHost = sub.SourceURL
 	}
 
 	var nonExcluded []store.Episode
@@ -148,9 +190,21 @@ func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) 
 		last := nonExcluded[len(nonExcluded)-1]
 		v.CaughtUpAt = &last.ScheduledAt
 		v.IsCaughtUp = !last.ScheduledAt.After(now)
+		if !v.IsCaughtUp {
+			v.CaughtUpIn = approxUntil(last.ScheduledAt.Sub(now))
+		}
 	}
 	if sub.LastFetchStatus != nil {
-		v.FetchStatus = *sub.LastFetchStatus
+		st := *sub.LastFetchStatus
+		switch {
+		case st == "ok":
+			v.FetchStatus = "ok"
+		case st == "not_modified":
+			v.FetchStatus = "unchanged"
+		case st != "":
+			v.FetchStatus = "error"
+			v.LastFetchError = strings.TrimPrefix(st, "error: ")
+		}
 	}
 
 	return v, nil
@@ -178,23 +232,42 @@ func (s *Server) renderDashboardWithError(w http.ResponseWriter, r *http.Request
 	}
 
 	s.render(w, "dashboard.html", map[string]any{
-		"Subscriptions":   views,
+		"Subscriptions": views,
+		"Error":         errMsg,
+		"BaseURL":       s.BaseURL,
+	})
+}
+
+func (s *Server) handleNewSubscription(w http.ResponseWriter, r *http.Request) {
+	s.renderNewSubscription(w, "")
+}
+
+// renderNewSubscription renders the add-feed page; errors from the
+// create handler land here so the form stays in front of the user.
+func (s *Server) renderNewSubscription(w http.ResponseWriter, errMsg string) {
+	// The start_at field is interpreted in the chosen timezone, so its
+	// default must be "now" on that clock, not UTC.
+	now := time.Now().UTC()
+	if loc, err := time.LoadLocation(s.DefaultTimezone); err == nil {
+		now = now.In(loc)
+	}
+
+	s.render(w, "new.html", map[string]any{
 		"Error":           errMsg,
-		"BaseURL":         s.BaseURL,
 		"DefaultTimezone": s.DefaultTimezone,
-		"Now":             time.Now().UTC(),
-		"Defaults": map[string]any{
-			"CadenceDays":     defaultCadenceDays,
-			"SeedCount":       defaultSeedCount,
-			"EpisodesPerSlot": defaultEpisodesPerSlot,
-			"ReleaseTime":     defaultReleaseTime,
-		},
+		"Now":             now,
 	})
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
+	tmpl, err := s.templates()
+	if err != nil {
+		s.Logger.Error("template parse failed", "error", err)
+		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
 		s.Logger.Error("render failed", "template", name, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}

@@ -23,9 +23,9 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// One shape for every field error: re-render the dashboard with the
-	// message above the form, so nothing typed in is lost.
-	fail := func(err error) { s.renderDashboardWithError(w, r, err.Error()) }
+	// One shape for every field error: re-render the add-feed page with
+	// the message above the form, so nothing typed in is lost.
+	fail := func(err error) { s.renderNewSubscription(w, err.Error()) }
 
 	sourceURL := optionalString(r, "source_url")
 	if sourceURL == nil {
@@ -236,6 +236,31 @@ func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
 	s.redirectOrOK(w, r, "/admin")
 }
 
+// handleReleaseNext releases the earliest upcoming episode right now.
+// mode=shift also moves the remaining episodes to keep the cadence from
+// this release; anything else (or "keep") leaves their dates alone.
+func (s *Server) handleReleaseNext(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	shift := r.FormValue("mode") == "shift"
+	switch err := refresh.ReleaseNext(r.Context(), s.Store, id, time.Now().UTC(), shift); {
+	case errors.Is(err, refresh.ErrNothingToRelease):
+		http.Error(w, "No upcoming episodes left to release", http.StatusConflict)
+	case err != nil:
+		s.Logger.Error("admin: release next failed", "id", id, "error", err)
+		http.Error(w, "release failed", http.StatusInternalServerError)
+	default:
+		http.Redirect(w, r, fmt.Sprintf("/admin/subscriptions/%d/schedule", id), http.StatusSeeOther)
+	}
+}
+
 func (s *Server) handleExcludeEpisode(w http.ResponseWriter, r *http.Request) {
 	s.setExcluded(w, r, true)
 }
@@ -289,8 +314,11 @@ func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 
 	type row struct {
 		store.Episode
-		Preview time.Time
+		Preview  time.Time
+		Released bool
 	}
+	now := time.Now().UTC()
+	hasUpcoming := false
 	rows := make([]row, 0, len(episodes))
 	for _, e := range episodes {
 		at := e.ScheduledAt
@@ -299,14 +327,17 @@ func (s *Server) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 				at = computed
 			}
 		}
-		rows = append(rows, row{Episode: e, Preview: at})
+		released := !at.After(now)
+		if !released && !e.Excluded && !e.Locked && e.MissingSince == nil {
+			hasUpcoming = true
+		}
+		rows = append(rows, row{Episode: e, Preview: at, Released: released})
 	}
 
 	s.render(w, "schedule.html", map[string]any{
 		"Subscription": sub,
-		"Title":        s.subscriptionTitle(sub),
-		"Cadence":      cadenceSummary(sub),
 		"Episodes":     rows,
+		"HasUpcoming":  hasUpcoming,
 	})
 }
 

@@ -104,6 +104,11 @@ func runServe(args []string) error {
 		return fmt.Errorf("build web server: %w", err)
 	}
 
+	if cfg.DevWebDir != "" {
+		srv.DevWebDir = cfg.DevWebDir
+		logger.Warn("serving web assets from disk (dev mode)", "dir", cfg.DevWebDir)
+	}
+
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      srv.Routes(),
