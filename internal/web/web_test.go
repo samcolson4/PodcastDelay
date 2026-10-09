@@ -253,6 +253,67 @@ func TestPauseResumeDelete(t *testing.T) {
 	}
 }
 
+func TestHideUnhide(t *testing.T) {
+	h := newTestHarness(t)
+	sub := h.addSubscription(t)
+	id := strconv.FormatInt(sub.ID, 10)
+
+	hideResp := h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/hide", url.Values{})
+	hideResp.Body.Close()
+	if hideResp.StatusCode != http.StatusOK && hideResp.StatusCode != http.StatusSeeOther {
+		t.Errorf("hide: unexpected status %d", hideResp.StatusCode)
+	}
+	hidden, err := h.store.GetSubscription(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hidden.HiddenAt == nil {
+		t.Fatal("expected hidden_at to be set")
+	}
+
+	// Hidden feeds disappear from the main dashboard...
+	dashResp := h.adminRequest(t, http.MethodGet, "/admin", nil)
+	dashBody, _ := io.ReadAll(dashResp.Body)
+	dashResp.Body.Close()
+	if strings.Contains(string(dashBody), "Widget Weekly") {
+		t.Error("expected hidden feed not to appear on the dashboard")
+	}
+
+	// ...but still show up on the hidden-feeds page.
+	hiddenPageResp := h.adminRequest(t, http.MethodGet, "/admin/hidden", nil)
+	hiddenPageBody, _ := io.ReadAll(hiddenPageResp.Body)
+	hiddenPageResp.Body.Close()
+	if hiddenPageResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /admin/hidden, got %d", hiddenPageResp.StatusCode)
+	}
+	if !strings.Contains(string(hiddenPageBody), "Widget Weekly") {
+		t.Error("expected hidden feed to appear on the hidden-feeds page")
+	}
+
+	// It still serves and can still be refreshed while hidden.
+	feedResp, err := http.Get(h.http.URL + "/f/" + sub.Token + ".xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	feedResp.Body.Close()
+	if feedResp.StatusCode != http.StatusOK {
+		t.Errorf("expected hidden feed to still serve, got %d", feedResp.StatusCode)
+	}
+
+	unhideResp := h.adminRequest(t, http.MethodPost, "/admin/subscriptions/"+id+"/unhide", url.Values{})
+	unhideResp.Body.Close()
+	if unhideResp.StatusCode != http.StatusOK && unhideResp.StatusCode != http.StatusSeeOther {
+		t.Errorf("unhide: unexpected status %d", unhideResp.StatusCode)
+	}
+	unhidden, err := h.store.GetSubscription(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unhidden.HiddenAt != nil {
+		t.Error("expected hidden_at cleared after unhide")
+	}
+}
+
 func TestPatchSubscription_ReschedulesUnlockedOnly(t *testing.T) {
 	h := newTestHarness(t)
 	sub := h.addSubscription(t)

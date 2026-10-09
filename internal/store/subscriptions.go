@@ -57,7 +57,7 @@ func (q *Queries) CreateSubscription(ctx context.Context, n NewSubscription) (Su
 const subscriptionColumns = `
 	id, token, source_url, premium_source_url, title_override, cadence_days, release_time,
 	timezone, start_at, seed_count, episodes_per_slot, shift_seconds,
-	paused_at, max_feed_items, channel_json, etag, last_modified,
+	paused_at, hidden_at, max_feed_items, channel_json, etag, last_modified,
 	premium_etag, premium_last_modified,
 	last_fetched_at, last_fetch_status, created_at, updated_at, cadence_mode`
 
@@ -65,14 +65,14 @@ func scanSubscription(row rowScanner) (Subscription, error) {
 	var s Subscription
 	var titleOverride, etag, lastModified, lastFetchStatus sql.NullString
 	var premiumSourceURL, premiumETag, premiumLastModified sql.NullString
-	var pausedAt, lastFetchedAt sql.NullString
+	var pausedAt, hiddenAt, lastFetchedAt sql.NullString
 	var maxFeedItems sql.NullInt64
 	var startAt, createdAt, updatedAt string
 
 	err := row.Scan(
 		&s.ID, &s.Token, &s.SourceURL, &premiumSourceURL, &titleOverride, &s.CadenceDays, &s.ReleaseTime,
 		&s.Timezone, &startAt, &s.SeedCount, &s.EpisodesPerSlot, &s.ShiftSeconds,
-		&pausedAt, &maxFeedItems, &s.ChannelJSON, &etag, &lastModified,
+		&pausedAt, &hiddenAt, &maxFeedItems, &s.ChannelJSON, &etag, &lastModified,
 		&premiumETag, &premiumLastModified,
 		&lastFetchedAt, &lastFetchStatus, &createdAt, &updatedAt, &s.CadenceMode,
 	)
@@ -100,6 +100,9 @@ func scanSubscription(row rowScanner) (Subscription, error) {
 	}
 	if s.PausedAt, err = fromDBTimePtr(pausedAt); err != nil {
 		return Subscription{}, fmt.Errorf("store: parse paused_at: %w", err)
+	}
+	if s.HiddenAt, err = fromDBTimePtr(hiddenAt); err != nil {
+		return Subscription{}, fmt.Errorf("store: parse hidden_at: %w", err)
 	}
 	if s.LastFetchedAt, err = fromDBTimePtr(lastFetchedAt); err != nil {
 		return Subscription{}, fmt.Errorf("store: parse last_fetched_at: %w", err)
@@ -269,6 +272,27 @@ func (q *Queries) ResumeSubscription(ctx context.Context, id int64, now time.Tim
 		elapsed, toDBTime(now), id)
 	if err != nil {
 		return fmt.Errorf("store: resume subscription %d: %w", id, err)
+	}
+	return nil
+}
+
+// HideSubscription tucks a subscription out of the main feeds list.
+// Unlike pausing, it has no effect on the schedule or on serving the
+// feed — it's purely a dashboard display concern.
+func (q *Queries) HideSubscription(ctx context.Context, id int64, now time.Time) error {
+	_, err := q.db.ExecContext(ctx, `UPDATE subscriptions SET hidden_at = ?, updated_at = ? WHERE id = ?`,
+		toDBTime(now), toDBTime(now), id)
+	if err != nil {
+		return fmt.Errorf("store: hide subscription %d: %w", id, err)
+	}
+	return nil
+}
+
+func (q *Queries) UnhideSubscription(ctx context.Context, id int64, now time.Time) error {
+	_, err := q.db.ExecContext(ctx, `UPDATE subscriptions SET hidden_at = NULL, updated_at = ? WHERE id = ?`,
+		toDBTime(now), id)
+	if err != nil {
+		return fmt.Errorf("store: unhide subscription %d: %w", id, err)
 	}
 	return nil
 }

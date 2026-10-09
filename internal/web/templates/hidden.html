@@ -1,0 +1,11 @@
+{{define "hidden.html"}}{{template "header" "Hidden feeds"}}
+
+<header class="page-head">
+  <h1>Hidden feeds</h1>
+  <a role="button" class="outline secondary" href="/admin">Back to feeds</a>
+</header>
+
+{{template "feed-table" .}}
+
+{{template "footer"}}
+{{end}}

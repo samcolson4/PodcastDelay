@@ -21,6 +21,7 @@ type Subscription struct {
 	EpisodesPerSlot     int
 	ShiftSeconds        int
 	PausedAt            *time.Time
+	HiddenAt            *time.Time
 	MaxFeedItems        *int
 	ChannelJSON         string
 	ETag                *string

@@ -76,6 +76,7 @@ func (s *Server) Routes() http.Handler {
 
 	admin := http.NewServeMux()
 	admin.HandleFunc("GET /admin", s.handleDashboard)
+	admin.HandleFunc("GET /admin/hidden", s.handleHiddenFeeds)
 	admin.HandleFunc("GET /admin/subscriptions/new", s.handleNewSubscription)
 	admin.HandleFunc("POST /admin/subscriptions", s.handleCreateSubscription)
 	admin.HandleFunc("PATCH /admin/subscriptions/{id}", s.handlePatchSubscription)
@@ -85,6 +86,8 @@ func (s *Server) Routes() http.Handler {
 	admin.HandleFunc("POST /admin/subscriptions/{id}/refresh", s.handleForceRefresh)
 	admin.HandleFunc("POST /admin/subscriptions/{id}/pause", s.handlePause)
 	admin.HandleFunc("POST /admin/subscriptions/{id}/resume", s.handleResume)
+	admin.HandleFunc("POST /admin/subscriptions/{id}/hide", s.handleHide)
+	admin.HandleFunc("POST /admin/subscriptions/{id}/unhide", s.handleUnhide)
 	admin.HandleFunc("POST /admin/subscriptions/{id}/release-next", s.handleReleaseNext)
 	admin.HandleFunc("POST /admin/subscriptions/{id}/episodes/{episode_id}/exclude", s.handleExcludeEpisode)
 	admin.HandleFunc("POST /admin/subscriptions/{id}/episodes/{episode_id}/include", s.handleIncludeEpisode)

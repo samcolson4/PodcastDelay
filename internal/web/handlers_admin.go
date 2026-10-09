@@ -267,6 +267,32 @@ func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
 	s.redirectOrOK(w, r, "/admin")
 }
 
+func (s *Server) handleHide(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return
+	}
+	if err := s.Store.HideSubscription(r.Context(), id, time.Now().UTC()); err != nil {
+		http.Error(w, "hide failed", http.StatusInternalServerError)
+		return
+	}
+	s.redirectOrOK(w, r, "/admin")
+}
+
+func (s *Server) handleUnhide(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return
+	}
+	if err := s.Store.UnhideSubscription(r.Context(), id, time.Now().UTC()); err != nil {
+		http.Error(w, "unhide failed", http.StatusInternalServerError)
+		return
+	}
+	s.redirectOrOK(w, r, "/admin/hidden")
+}
+
 // handleReleaseNext releases the earliest upcoming episode right now.
 // mode=shift also moves the remaining episodes to keep the cadence from
 // this release; anything else (or "keep") leaves their dates alone.

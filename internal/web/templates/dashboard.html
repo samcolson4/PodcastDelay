@@ -7,71 +7,9 @@
   <a role="button" class="add-btn btn-brand" href="/admin/subscriptions/new"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add feed</a>
 </header>
 
-<div class="table-wrap">
-<table>
-  <thead>
-    <tr>
-      <th>Show</th>
-      <th>Progress</th>
-      <th>Next release</th>
-      <th>Source</th>
-      <th>Status</th>
-      <th></th>
-    </tr>
-  </thead>
-  {{/* Every row action posts via htmx and swaps in a fresh tbody taken from the
-       redirect target (/admin). Without JS the plain forms still work. */}}
-  <tbody id="subs" hx-target="#subs" hx-select="#subs" hx-swap="outerHTML">
-  {{range .Subscriptions}}
-    <tr>
-      <td>
-        <div class="show">
-          {{if .ImageURL}}<img class="art" src="{{.ImageURL}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{else}}<span class="art art-empty">art</span>{{end}}
-          <strong>{{.Title}}</strong>
-        </div>
-        {{if .PremiumURL}}<div class="merged"><span class="badge merged-badge" data-tooltip="Two source feeds are merged into this one" data-placement="right">2 feeds merged</span> <span class="muted">+ {{.PremiumURL}}</span></div>{{end}}
-      </td>
-      <td class="progress-cell">
-        <div>Ep {{.ReleasedCount}} of {{.TotalEpisodes}}</div>
-        <progress value="{{.ReleasedCount}}" max="{{if .TotalEpisodes}}{{.TotalEpisodes}}{{else}}1{{end}}"></progress>
-        <div class="muted">{{if .IsCaughtUp}}Caught up{{else if .CaughtUpIn}}Caught up in {{.CaughtUpIn}}{{else}}—{{end}}</div>
-      </td>
-      <td>
-        <div>{{fmtDateOrNil .NextReleaseAt}}</div>
-        <div class="muted">{{fmtClockOrNil .NextReleaseAt}}</div>
-      </td>
-      <td><a href="{{.SourceURL}}" target="_blank" rel="noopener noreferrer" title="{{.SourceURL}}">{{.SourceHost}}</a></td>
-      <td>
-        {{if .PausedAt}}<span class="badge paused">Paused</span>{{end}}
-        {{if or (eq .FetchStatus "ok") (eq .FetchStatus "unchanged")}}<span class="badge ok" data-tooltip="Up to date" data-placement="top">OK</span>
-        {{else if eq .FetchStatus "error"}}<span class="badge error">Error</span><span class="muted status-msg">{{.LastFetchError}}</span>
-        {{else}}<span class="muted">Not fetched yet</span>{{end}}
-      </td>
-      <td class="actions">
-        <div class="row-actions">
-          <button type="button" class="outline secondary" data-copy="{{$.BaseURL}}/f/{{.Token}}.xml">Copy feed URL</button>
-          <details class="dropdown">
-            <summary aria-label="More actions" role="button" class="outline secondary">&#8943;</summary>
-            <ul>
-              <li><form hx-post="/admin/subscriptions/{{.ID}}/refresh" method="post" action="/admin/subscriptions/{{.ID}}/refresh"><button type="submit">Refresh</button></form></li>
-              {{if .PausedAt}}
-              <li><form hx-post="/admin/subscriptions/{{.ID}}/resume" method="post" action="/admin/subscriptions/{{.ID}}/resume"><button type="submit">Resume</button></form></li>
-              {{else}}
-              <li><form hx-post="/admin/subscriptions/{{.ID}}/pause" method="post" action="/admin/subscriptions/{{.ID}}/pause"><button type="submit">Pause</button></form></li>
-              {{end}}
-              <li><a href="/admin/subscriptions/{{.ID}}/schedule">Schedule</a></li>
-              <li><form hx-post="/admin/subscriptions/{{.ID}}/delete" hx-confirm="Delete this feed? This cannot be undone." method="post" action="/admin/subscriptions/{{.ID}}/delete" onsubmit="return window.htmx || confirm('Delete this feed? This cannot be undone.');"><button type="submit" class="danger">Delete</button></form></li>
-            </ul>
-          </details>
-        </div>
-      </td>
-    </tr>
-  {{else}}
-    <tr><td colspan="6" class="muted">No feeds yet — click Add feed to get started.</td></tr>
-  {{end}}
-  </tbody>
-</table>
-</div>
+{{template "feed-table" .}}
+
+<p><a role="button" class="outline secondary" href="/admin/hidden">Hidden feeds</a></p>
 
 {{template "footer"}}
 {{end}}

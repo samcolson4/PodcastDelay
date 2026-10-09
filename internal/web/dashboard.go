@@ -225,6 +225,9 @@ func (s *Server) renderDashboardWithError(w http.ResponseWriter, r *http.Request
 
 	views := make([]subscriptionView, 0, len(subs))
 	for _, sub := range subs {
+		if sub.HiddenAt != nil {
+			continue
+		}
 		v, err := s.buildSubscriptionView(r, sub)
 		if err != nil {
 			s.Logger.Error("dashboard: build view failed", "id", sub.ID, "error", err)
@@ -237,6 +240,37 @@ func (s *Server) renderDashboardWithError(w http.ResponseWriter, r *http.Request
 		"Subscriptions": views,
 		"Error":         errMsg,
 		"BaseURL":       s.BaseURL,
+		"Hidden":        false,
+	})
+}
+
+// handleHiddenFeeds lists the feeds hidden from the main dashboard.
+// Hiding is purely a display concern, so these keep refreshing and
+// serving exactly as before.
+func (s *Server) handleHiddenFeeds(w http.ResponseWriter, r *http.Request) {
+	subs, err := s.Store.ListSubscriptions(r.Context())
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	views := make([]subscriptionView, 0, len(subs))
+	for _, sub := range subs {
+		if sub.HiddenAt == nil {
+			continue
+		}
+		v, err := s.buildSubscriptionView(r, sub)
+		if err != nil {
+			s.Logger.Error("hidden feeds: build view failed", "id", sub.ID, "error", err)
+			continue
+		}
+		views = append(views, v)
+	}
+
+	s.render(w, "hidden.html", map[string]any{
+		"Subscriptions": views,
+		"BaseURL":       s.BaseURL,
+		"Hidden":        true,
 	})
 }
 

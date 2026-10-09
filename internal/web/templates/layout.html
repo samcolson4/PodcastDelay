@@ -37,8 +37,86 @@ try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') 
 <main class="container">
 {{end}}
 
+{{define "feed-table"}}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Show</th>
+      <th>Progress</th>
+      <th>Next release</th>
+      <th>Source</th>
+      <th><span data-tooltip="Whether the source feed is reachable and up to date: OK (fetched fine), Error (last fetch failed), Paused (polling is paused), or Not fetched yet" data-placement="bottom">Status</span></th>
+      <th></th>
+    </tr>
+  </thead>
+  {{/* Every row action posts via htmx and swaps in a fresh tbody taken from the
+       redirect target. Without JS the plain forms still work. */}}
+  <tbody id="subs" hx-target="#subs" hx-select="#subs" hx-swap="outerHTML">
+  {{range .Subscriptions}}
+    <tr>
+      <td>
+        <div class="show">
+          {{if .ImageURL}}<img class="art" src="{{.ImageURL}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{else}}<span class="art art-empty">art</span>{{end}}
+          <strong>{{.Title}}</strong>
+        </div>
+        {{if .PremiumURL}}<div class="merged"><span class="badge merged-badge" data-tooltip="Two source feeds are merged into this one" data-placement="right">2 feeds merged</span> <span class="muted">+ {{.PremiumURL}}</span></div>{{end}}
+      </td>
+      <td class="progress-cell">
+        <div>Ep {{.ReleasedCount}} of {{.TotalEpisodes}}</div>
+        <progress value="{{.ReleasedCount}}" max="{{if .TotalEpisodes}}{{.TotalEpisodes}}{{else}}1{{end}}"></progress>
+        <div class="muted">{{if .IsCaughtUp}}Caught up{{else if .CaughtUpIn}}Caught up in {{.CaughtUpIn}}{{else}}—{{end}}</div>
+      </td>
+      <td>
+        <div>{{fmtDateOrNil .NextReleaseAt}}</div>
+        <div class="muted">{{fmtClockOrNil .NextReleaseAt}}</div>
+      </td>
+      <td><a href="{{.SourceURL}}" target="_blank" rel="noopener noreferrer" title="{{.SourceURL}}">{{.SourceHost}}</a></td>
+      <td>
+        {{if .PausedAt}}<span class="badge paused" data-tooltip="Polling is paused; this feed won't fetch new episodes until resumed" data-placement="top">Paused</span>{{end}}
+        {{if or (eq .FetchStatus "ok") (eq .FetchStatus "unchanged")}}<span class="badge ok" data-tooltip="Last fetch succeeded; the feed is up to date" data-placement="top">OK</span>
+        {{else if eq .FetchStatus "error"}}<span class="badge error" data-tooltip="The last fetch attempt failed; see the message below" data-placement="top">Error</span><span class="muted status-msg">{{.LastFetchError}}</span>
+        {{else}}<span class="muted" data-tooltip="This feed hasn't been fetched yet" data-placement="top">Not fetched yet</span>{{end}}
+      </td>
+      <td class="actions">
+        <div class="row-actions">
+          <button type="button" class="outline secondary" data-copy="{{$.BaseURL}}/f/{{.Token}}.xml">Copy feed URL</button>
+          <details class="dropdown">
+            <summary aria-label="More actions" role="button" class="outline secondary">&#8943;</summary>
+            <ul>
+              <li><form hx-post="/admin/subscriptions/{{.ID}}/refresh" method="post" action="/admin/subscriptions/{{.ID}}/refresh"><button type="submit">Refresh</button></form></li>
+              {{if .PausedAt}}
+              <li><form hx-post="/admin/subscriptions/{{.ID}}/resume" method="post" action="/admin/subscriptions/{{.ID}}/resume"><button type="submit">Resume</button></form></li>
+              {{else}}
+              <li><form hx-post="/admin/subscriptions/{{.ID}}/pause" method="post" action="/admin/subscriptions/{{.ID}}/pause"><button type="submit">Pause</button></form></li>
+              {{end}}
+              <li><a href="/admin/subscriptions/{{.ID}}/schedule">Schedule</a></li>
+              {{if $.Hidden}}
+              <li><form hx-post="/admin/subscriptions/{{.ID}}/unhide" method="post" action="/admin/subscriptions/{{.ID}}/unhide"><button type="submit">Unhide</button></form></li>
+              {{else}}
+              <li><form hx-post="/admin/subscriptions/{{.ID}}/hide" method="post" action="/admin/subscriptions/{{.ID}}/hide"><button type="submit">Hide</button></form></li>
+              {{end}}
+              <li><form hx-post="/admin/subscriptions/{{.ID}}/delete" hx-confirm="Delete this feed? This cannot be undone." method="post" action="/admin/subscriptions/{{.ID}}/delete" onsubmit="return window.htmx || confirm('Delete this feed? This cannot be undone.');"><button type="submit" class="danger">Delete</button></form></li>
+            </ul>
+          </details>
+        </div>
+      </td>
+    </tr>
+  {{else}}
+    <tr><td colspan="6" class="muted">{{if $.Hidden}}No hidden feeds.{{else}}No feeds yet — click Add feed to get started.{{end}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
 {{define "footer"}}
 </main>
+<footer class="site-footer"><div class="container">
+  <a href="https://github.com/samcolson4/PodcastDelay" target="_blank" rel="noopener noreferrer" aria-label="View source on GitHub">
+    <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+  </a>
+</div></footer>
 <div id="toast" role="status" aria-live="polite"></div>
 <script src="/static/htmx.min.js"></script>
 <script src="/static/app.js"></script>
