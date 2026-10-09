@@ -13,7 +13,12 @@
   }
 }
 
-main.container { max-width: 1400px; padding-top: 0.75rem; }
+/* Pico scales the root font up at every breakpoint (to 131% on wide screens); pin it smaller. */
+html { font-size: 87.5%; }
+/* Breathing room at the page edges, header and content alike. */
+.container { max-width: 1280px; padding-left: 2rem; padding-right: 2rem; }
+@media (max-width: 576px) { .container { padding-left: 1rem; padding-right: 1rem; } }
+main.container { padding-top: 1.25rem; padding-bottom: 2rem; }
 .site-header { border-bottom: 1px solid var(--pico-muted-border-color); margin-bottom: 0; }
 .site-header nav.top { min-height: 0; }
 .site-header nav.top li { padding-top: 0.1rem; padding-bottom: 0.1rem; }
@@ -124,7 +129,7 @@ button.danger:not(.outline):hover { --pico-background-color: #a5301f; --pico-bor
 #episodes.hide-released tr[data-released="true"] { display: none; }
 
 /* Feeds table */
-table { font-size: 0.95rem; }
+table { font-size: 0.9rem; }
 table th { font-size: 0.85rem; font-weight: 500; text-transform: none; color: var(--pico-muted-color); white-space: nowrap; }
 table td { vertical-align: middle; padding: 0.9rem 0.75rem; }
 .show { display: flex; align-items: center; gap: 0.75rem; }
