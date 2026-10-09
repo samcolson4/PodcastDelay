@@ -1,4 +1,6 @@
 # PodcastDelay
+<img width="1518" height="1102" alt="Screenshot 2026-10-09 at 23 09 17" src="https://github.com/user-attachments/assets/edb251e1-6f3f-4d92-88de-4639e764bb05" />
+
 ## What
 A solution for re-publishing a podcast's real RSS feed as a new private feed. It can start releasing from any episode, at any cadence, including mirroring the original release cadence.
 
@@ -6,7 +8,7 @@ If a show has two feeds — the regular one and a premium/bonus one — you can 
 
 This is designed only to be run in a homelab or similar. It is single-user, with no support for separate 'accounts'. Audio is never re-hosted — enclosure URLs (and the publisher's analytics prefix) pass through untouched, so your listens still count. See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full (fully-Claude) design write-up.
 
-## Why
+## Why
 I'm a bit nostalgic. There are some podcasts I started listening to years ago (2017~), but not at the start (2008~). At a certain point, the podcast changes, maybe some stalwarts rotate out of the main line-up... I just want to go back, to the beginning.
 
 I'm also someone that has no self-restraint. I'll mainline ten of the same podcast in a day, then forget all about listening to no.11. Podcasts apps do not help this: It's hard to get them to cooperate in a way which surfaces _your_ next episode in the 'Latest episodes' list, because while it may be up next for _you_, it was actually released 15 years ago.
