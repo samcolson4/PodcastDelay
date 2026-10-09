@@ -118,6 +118,7 @@ type subscriptionView struct {
 	// FetchStatus is a display bucket for the last fetch: "ok",
 	// "unchanged", "error", or "" if the feed hasn't been fetched yet.
 	FetchStatus string
+	PremiumURL  string
 	ImageURL    string
 	SourceHost  string
 	// CaughtUpIn is a rough "~12 yrs" until the last episode releases;
@@ -158,6 +159,7 @@ func (s *Server) buildSubscriptionView(r *http.Request, sub store.Subscription) 
 		Title:        titleOverrideOr(sub, meta.Title),
 		Cadence:      cadenceSummary(sub),
 		ImageURL:     meta.ImageURL,
+		PremiumURL:   valueOr(sub.PremiumSourceURL, ""),
 	}
 	if v.Title == "" {
 		v.Title = sub.SourceURL

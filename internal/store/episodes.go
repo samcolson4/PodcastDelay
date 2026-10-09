@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/samcolson4/podcastdelay/internal/schedule"
 )
 
 // NewEpisode is what the source parser hands the store on first sight
@@ -13,6 +15,7 @@ import (
 // in internal/refresh before this is inserted.
 type NewEpisode struct {
 	GUID            string
+	SourceRole      string
 	Position        int
 	ScheduledAt     time.Time
 	OriginalPubDate *time.Time
@@ -31,7 +34,7 @@ type NewEpisode struct {
 }
 
 const episodeColumns = `
-	id, subscription_id, guid, position, scheduled_at, locked, excluded,
+	id, subscription_id, guid, source_role, position, scheduled_at, locked, excluded,
 	original_pub_date, title, description, link, enclosure_url,
 	enclosure_type, enclosure_length, duration, episode_number, season,
 	episode_type, explicit, image_url, first_seen_at, missing_since`
@@ -47,7 +50,7 @@ func scanEpisode(row rowScanner) (Episode, error) {
 	var scheduledAt, firstSeenAt string
 
 	err := row.Scan(
-		&e.ID, &e.SubscriptionID, &e.GUID, &e.Position, &scheduledAt, &locked, &excluded,
+		&e.ID, &e.SubscriptionID, &e.GUID, &e.SourceRole, &e.Position, &scheduledAt, &locked, &excluded,
 		&originalPubDate, &e.Title, &description, &link, &e.EnclosureURL,
 		&enclosureType, &enclosureLength, &duration, &episodeNumber, &season,
 		&episodeType, &explicit, &imageURL, &firstSeenAt, &missingSince,
@@ -102,12 +105,12 @@ func (q *Queries) InsertEpisode(ctx context.Context, subscriptionID int64, n New
 	now := time.Now().UTC()
 	_, err := q.db.ExecContext(ctx, `
 		INSERT INTO episodes (
-			subscription_id, guid, position, scheduled_at, locked, excluded,
+			subscription_id, guid, source_role, position, scheduled_at, locked, excluded,
 			original_pub_date, title, description, link, enclosure_url,
 			enclosure_type, enclosure_length, duration, episode_number, season,
 			episode_type, explicit, image_url, first_seen_at
-		) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		subscriptionID, n.GUID, n.Position, toDBTime(n.ScheduledAt),
+		) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		subscriptionID, n.GUID, schedule.NormalizeRole(n.SourceRole), n.Position, toDBTime(n.ScheduledAt),
 		toDBTimePtr(n.OriginalPubDate), n.Title, n.Description, n.Link, n.EnclosureURL,
 		n.EnclosureType, nullInt64(n.EnclosureLength), n.Duration, nullIntFromIntPtr(n.EpisodeNumber), nullIntFromIntPtr(n.Season),
 		n.EpisodeType, nullBoolFromPtr(n.Explicit), n.ImageURL, toDBTime(now),
@@ -115,11 +118,15 @@ func (q *Queries) InsertEpisode(ctx context.Context, subscriptionID int64, n New
 	if err != nil {
 		return Episode{}, fmt.Errorf("store: insert episode %s: %w", n.GUID, err)
 	}
-	return q.GetEpisodeByGUID(ctx, subscriptionID, n.GUID)
+	return q.GetEpisodeByGUID(ctx, subscriptionID, n.SourceRole, n.GUID)
 }
 
-func (q *Queries) GetEpisodeByGUID(ctx context.Context, subscriptionID int64, guid string) (Episode, error) {
-	row := q.db.QueryRowContext(ctx, `SELECT `+episodeColumns+` FROM episodes WHERE subscription_id = ? AND guid = ?`, subscriptionID, guid)
+// GetEpisodeByGUID looks an episode up by the GUID its publisher gave
+// it. The role is part of the key because a premium feed is often an
+// ad-free re-cut of the same episodes, reusing their GUIDs.
+func (q *Queries) GetEpisodeByGUID(ctx context.Context, subscriptionID int64, role, guid string) (Episode, error) {
+	row := q.db.QueryRowContext(ctx, `SELECT `+episodeColumns+` FROM episodes WHERE subscription_id = ? AND source_role = ? AND guid = ?`,
+		subscriptionID, schedule.NormalizeRole(role), guid)
 	e, err := scanEpisode(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Episode{}, ErrNotFound
@@ -128,6 +135,19 @@ func (q *Queries) GetEpisodeByGUID(ctx context.Context, subscriptionID int64, gu
 		return Episode{}, fmt.Errorf("store: get episode %s: %w", guid, err)
 	}
 	return e, nil
+}
+
+// DeleteEpisodesByRole removes every episode a subscription ingested
+// from one of its feeds. Used when a premium feed is unmelded: its
+// episodes were never part of the free show, and leaving them behind
+// would keep releasing bonus content from a feed we no longer poll.
+func (q *Queries) DeleteEpisodesByRole(ctx context.Context, subscriptionID int64, role string) error {
+	_, err := q.db.ExecContext(ctx, `DELETE FROM episodes WHERE subscription_id = ? AND source_role = ?`,
+		subscriptionID, schedule.NormalizeRole(role))
+	if err != nil {
+		return fmt.Errorf("store: delete %s episodes for %d: %w", role, subscriptionID, err)
+	}
+	return nil
 }
 
 // ListBySubscription returns every episode (including excluded and
@@ -144,13 +164,15 @@ func (q *Queries) ListBySubscription(ctx context.Context, subscriptionID int64) 
 
 // ListReleased returns episodes visible in the public feed: not
 // excluded, and either already locked or whose scheduled_at has passed.
-// Ordered newest-first (by position, which matches ingest/chronological
-// order within the source) for typical RSS reader conventions, capped
-// at limit when limit > 0.
+// Ordered newest-first by release time for typical RSS reader
+// conventions, capped at limit when limit > 0. Release time rather than
+// position, because a melded premium feed interleaves with the free one
+// by date and its episodes are appended at the tail of the position
+// sequence whenever they are first seen.
 func (q *Queries) ListReleased(ctx context.Context, subscriptionID int64, now time.Time, limit int) ([]Episode, error) {
 	query := `SELECT ` + episodeColumns + ` FROM episodes
 		WHERE subscription_id = ? AND excluded = 0 AND (locked = 1 OR scheduled_at <= ?)
-		ORDER BY position DESC`
+		ORDER BY scheduled_at DESC, position DESC`
 	args := []any{subscriptionID, toDBTime(now)}
 	if limit > 0 {
 		query += ` LIMIT ?`

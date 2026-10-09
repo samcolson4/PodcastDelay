@@ -1,5 +1,6 @@
 {{define "schedule.html"}}{{template "header" "Schedule"}}
 <h1>Schedule</h1>
+{{with .Subscription.PremiumSourceURL}}<p class="merged"><span class="badge merged-badge">2 feeds merged</span> <span class="muted">{{$.Subscription.SourceURL}} + {{.}}</span></p>{{end}}
 <p class="muted">
   {{with .Subscription}}
   {{if eq .CadenceMode "original"}}New episodes are released with the same gaps between them as when the show originally came out.{{else}}New episodes are released {{if eq .EpisodesPerSlot 1}}one at a time{{else}}{{.EpisodesPerSlot}} at a time{{end}}, {{if eq .CadenceDays 1}}every day{{else}}every {{.CadenceDays}} days{{end}} at {{.ReleaseTime}} ({{.Timezone}}).{{end}}
@@ -32,6 +33,11 @@
     <label>Seed count<input type="number" name="seed_count" min="0" value="{{.Subscription.SeedCount}}"></label>
     <label>Episodes per slot<input type="number" name="episodes_per_slot" min="1" value="{{.Subscription.EpisodesPerSlot}}"></label>
   </div>
+  <label>Premium / bonus RSS URL (optional)
+    <input type="url" name="premium_source_url" value="{{with .Subscription.PremiumSourceURL}}{{.}}{{end}}" placeholder="https://example.com/premium-feed.xml">
+  </label>
+  <p class="muted">Saving a premium URL merges that feed into this one straight away: each bonus episode releases the same distance after its free counterpart as it did originally.{{if .Subscription.PremiumSourceURL}} Tick below to unmerge it again — that deletes the episodes that came from it.{{end}}</p>
+  {{if .Subscription.PremiumSourceURL}}<label><input type="checkbox" name="remove_premium" value="1"> Remove the premium feed and its episodes</label>{{end}}
   <p class="muted">Only not-yet-released episodes move when you save.</p>
   <button type="submit" class="btn-brand">Save &amp; reschedule</button>
 </form>
@@ -42,12 +48,13 @@
 
 <div class="table-wrap">
 <table id="episodes">
-  <thead><tr><th>#</th><th>Title</th><th>Release</th><th>State</th><th></th></tr></thead>
+  <thead><tr><th>#</th><th>Title</th>{{if .Subscription.PremiumSourceURL}}<th>Feed</th>{{end}}<th>Release</th><th>State</th><th></th></tr></thead>
   <tbody>
   {{range .Episodes}}
     <tr class="{{if .Excluded}}excluded{{end}}" data-released="{{.Released}}">
       <td>{{.Position}}</td>
       <td>{{.Title}}</td>
+      {{if $.Subscription.PremiumSourceURL}}<td>{{if .Premium}}<span class="badge merged-badge">Premium</span>{{else}}<span class="muted">Free</span>{{end}}</td>{{end}}
       <td>{{fmtTime .Preview}}</td>
       <td>{{if .Released}}<span class="badge ok">Released</span>{{else}}<span class="badge warn">Upcoming</span>{{end}}</td>
       <td>

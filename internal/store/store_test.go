@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/samcolson4/podcastdelay/internal/schedule"
 )
 
 func openTestStore(t *testing.T) *Store {
@@ -191,5 +193,158 @@ func TestWithTxRollsBackOnError(t *testing.T) {
 
 	if _, err := s.GetSubscriptionByToken(ctx, "will-rollback"); err != ErrNotFound {
 		t.Errorf("expected rollback to discard the insert, got err=%v", err)
+	}
+}
+
+func TestPremiumEpisodesAreSeparateFromFreeOnes(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	premiumURL := "https://example.com/premium.xml"
+	sub, err := s.CreateSubscription(ctx, NewSubscription{
+		Token: "tok-premium", SourceURL: "https://example.com/feed.xml",
+		PremiumSourceURL: &premiumURL,
+		CadenceDays:      7, ReleaseTime: "07:00", Timezone: "UTC",
+		StartAt:   time.Date(2026, 1, 1, 7, 0, 0, 0, time.UTC),
+		SeedCount: 1, EpisodesPerSlot: 1, ChannelJSON: "{}",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.PremiumSourceURL == nil || *sub.PremiumSourceURL != premiumURL {
+		t.Fatalf("premium source url not round-tripped: %v", sub.PremiumSourceURL)
+	}
+
+	free := time.Date(2026, 1, 1, 7, 0, 0, 0, time.UTC)
+	bonus := time.Date(2026, 1, 2, 8, 0, 0, 0, time.UTC)
+	// The same GUID in both feeds: an ad-free re-cut of one episode.
+	if _, err := s.InsertEpisode(ctx, sub.ID, NewEpisode{
+		GUID: "guid-1", Position: 0, ScheduledAt: free,
+		Title: "Ep 1", EnclosureURL: "https://cdn.example.com/1.mp3",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertEpisode(ctx, sub.ID, NewEpisode{
+		GUID: "guid-1", SourceRole: schedule.RolePremium, Position: 1, ScheduledAt: bonus,
+		Title: "Bonus 1", EnclosureURL: "https://cdn.example.com/bonus-1.mp3",
+	}); err != nil {
+		t.Fatalf("the premium feed's guid-1 should be its own episode: %v", err)
+	}
+
+	gotFree, err := s.GetEpisodeByGUID(ctx, sub.ID, schedule.RolePrimary, "guid-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotPremium, err := s.GetEpisodeByGUID(ctx, sub.ID, schedule.RolePremium, "guid-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotFree.Title != "Ep 1" || gotPremium.Title != "Bonus 1" {
+		t.Errorf("role did not disambiguate the shared guid: %q / %q", gotFree.Title, gotPremium.Title)
+	}
+
+	// The rendered feed is ordered by release time, so a premium
+	// episode interleaves with the free ones instead of sitting at the
+	// top on account of its tail position.
+	if _, err := s.InsertEpisode(ctx, sub.ID, NewEpisode{
+		GUID: "guid-2", Position: 2, ScheduledAt: time.Date(2026, 1, 8, 7, 0, 0, 0, time.UTC),
+		Title: "Ep 2", EnclosureURL: "https://cdn.example.com/2.mp3",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	released, err := s.ListReleased(ctx, sub.ID, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotOrder := make([]string, 0, len(released))
+	for _, e := range released {
+		gotOrder = append(gotOrder, e.Title)
+	}
+	want := []string{"Ep 2", "Bonus 1", "Ep 1"}
+	if len(gotOrder) != len(want) {
+		t.Fatalf("expected %v, got %v", want, gotOrder)
+	}
+	for i := range want {
+		if gotOrder[i] != want[i] {
+			t.Fatalf("feed order = %v, want %v", gotOrder, want)
+		}
+	}
+
+	// Unmelding drops only the premium feed's episodes.
+	if err := s.DeleteEpisodesByRole(ctx, sub.ID, schedule.RolePremium); err != nil {
+		t.Fatal(err)
+	}
+	all, err := s.ListBySubscription(ctx, sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("expected the 2 free episodes to remain, got %d", len(all))
+	}
+	for _, e := range all {
+		if e.SourceRole != schedule.RolePrimary {
+			t.Errorf("episode %q survived with role %q", e.Title, e.SourceRole)
+		}
+	}
+}
+
+func TestPatchSubscription_PremiumURLChangeDropsItsValidators(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	first := "https://example.com/premium-v1.xml"
+	sub, err := s.CreateSubscription(ctx, NewSubscription{
+		Token: "tok-validators", SourceURL: "https://example.com/feed.xml",
+		PremiumSourceURL: &first,
+		CadenceDays:      7, ReleaseTime: "07:00", Timezone: "UTC",
+		StartAt: time.Now(), SeedCount: 1, EpisodesPerSlot: 1, ChannelJSON: "{}",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	etag, lastModified := `"p1"`, "Mon, 02 Mar 2020 08:00:00 GMT"
+	if err := s.UpdateFetchState(ctx, sub.ID, FetchState{
+		ETag: &etag, LastModified: &lastModified,
+		PremiumETag: &etag, PremiumLastModified: &lastModified,
+		FetchedAt: time.Now(), Status: "ok",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-patching the same URL leaves the validators alone.
+	same := &first
+	unchanged, err := s.PatchSubscription(ctx, sub.ID, SubscriptionPatch{PremiumSourceURL: &same})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.PremiumETag == nil {
+		t.Error("re-patching the same premium url dropped its etag")
+	}
+
+	second := "https://example.com/premium-v2.xml"
+	moved := &second
+	patched, err := s.PatchSubscription(ctx, sub.ID, SubscriptionPatch{PremiumSourceURL: &moved})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patched.PremiumSourceURL == nil || *patched.PremiumSourceURL != second {
+		t.Fatalf("premium url not patched: %v", patched.PremiumSourceURL)
+	}
+	if patched.PremiumETag != nil || patched.PremiumLastModified != nil {
+		t.Error("validators from the old premium url survived the change")
+	}
+	// The free feed's own validators are untouched by all of this.
+	if patched.ETag == nil || *patched.ETag != etag {
+		t.Errorf("free feed etag = %v, want %q", patched.ETag, etag)
+	}
+
+	var cleared *string
+	unmelded, err := s.PatchSubscription(ctx, sub.ID, SubscriptionPatch{PremiumSourceURL: &cleared})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unmelded.PremiumSourceURL != nil {
+		t.Errorf("premium url not cleared: %v", *unmelded.PremiumSourceURL)
 	}
 }

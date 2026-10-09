@@ -146,9 +146,67 @@ extensions.
   `If-None-Match` / `If-Modified-Since`. A 304 costs nothing and is polite.
   Set a real `User-Agent` identifying the app.
 - **Inbound:** podcast apps poll aggressively. Emit an `ETag` on our feed derived
-  from (subscription `updated_at`, highest released position) and answer 304.
+  from (subscription `updated_at`, how many episodes have released, and the
+  newest release time) and answer 304. Not the highest released *position*: a
+  melded premium episode (§3.9) sits at the tail of the position sequence
+  whatever its date, so it can release behind a higher-positioned free episode
+  and would leave such an ETag unchanged.
   Critically, **do not put a fresh timestamp in `lastBuildDate` on every
   request** — bucket it to the last release event, or apps see perpetual churn.
+
+### 3.9 Two feeds for one show: premium and free
+
+Plenty of shows publish twice: the regular free feed, and a premium feed of
+bonus or ad-free episodes that goes out at the same time or thereabouts. Those
+belong in **one** delayed feed — subscribing to two feeds that are meant to be
+listened to together puts you back to picking episodes out of two lists by
+hand.
+
+So a subscription has an optional second source, `premium_source_url`, and
+every episode remembers which feed it came from (`episodes.source_role`,
+`primary` or `premium`). Both feeds are polled in the same cycle, and both
+render into the same `/f/{token}.xml`.
+
+**Only the free feed is paced by the cadence. Premium episodes are anchored to
+it:**
+
+```
+anchor(p)    = the free episode published last at or before p
+release_at(p) = release_at(anchor(p)) + (pub(p) - pub(anchor(p)))
+```
+
+A bonus episode that came out an hour after its free counterpart comes out an
+hour after it here; a day stays a day. The *original* gap is preserved rather
+than scaled, because that gap is the thing being reproduced — and it holds
+whether the free feed is being replayed weekly, daily, or at its own original
+cadence.
+
+Consequences worth naming:
+
+- **A premium episode never consumes a cadence slot.** The cadence counts an
+  episode's *rank among the free episodes*, not its raw ingest position, so
+  melding a premium feed into an existing show doesn't slow the free feed down
+  or shift a single one of its dates.
+- **Melding is non-destructive and reversible.** Adding a premium feed to a
+  show that's already running ingests it at the tail of the position sequence
+  (§3.2 still holds) and schedules it by anchoring, so already-released free
+  episodes keep their dates (§3.3). Unmelding deletes the episodes that came
+  from that feed, because there's no longer a feed to tombstone them against.
+- **The two feeds often share GUIDs**, since a premium feed is frequently an
+  ad-free re-cut of the same episodes. The GUID uniqueness constraint is
+  therefore per role, and the rendered GUID gains a `premium:` segment
+  (§3.4) so an app sees two episodes rather than deduplicating them into one.
+- **A broken premium feed is not a broken show.** Its failure is recorded in
+  `last_fetch_status` as a `(premium error: ...)` annotation and the free feed
+  ingests as usual — deliberately not an `error:` status, which would put the
+  whole subscription on the 24h failure backoff over a bonus feed.
+- **A cadence much faster than the original can reorder the two streams**: a
+  bonus episode published 2 days after its free counterpart will land after the
+  next free episode if you're replaying one episode a day. It stays in sync
+  with its own anchor, which is what was asked for; the lag is constant rather
+  than accumulating.
+- **The feed is ordered by release time, not position**, since a melded premium
+  episode's position is at the tail whatever its date.
 
 ---
 
@@ -160,7 +218,8 @@ SQLite, one file. Embedded migrations.
 CREATE TABLE subscriptions (
   id                  INTEGER PRIMARY KEY,
   token               TEXT NOT NULL UNIQUE,   -- 128-bit random, URL slug
-  source_url          TEXT NOT NULL,
+  source_url          TEXT NOT NULL,          -- the show's regular (free) feed
+  premium_source_url  TEXT,                   -- optional premium feed, melded in (§3.9)
   title_override      TEXT,                   -- default: "<Original> (via PodcastDelay)"
   cadence_days        INTEGER NOT NULL,       -- 7 = weekly
   release_time        TEXT NOT NULL DEFAULT '07:00',
@@ -174,6 +233,8 @@ CREATE TABLE subscriptions (
   channel_json        TEXT NOT NULL,          -- cached channel metadata
   etag                TEXT,
   last_modified       TEXT,
+  premium_etag        TEXT,                   -- validators are per URL
+  premium_last_modified TEXT,
   last_fetched_at     TIMESTAMP,
   last_fetch_status   TEXT,
   created_at          TIMESTAMP NOT NULL,
@@ -184,6 +245,7 @@ CREATE TABLE episodes (
   id                INTEGER PRIMARY KEY,
   subscription_id   INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
   guid              TEXT NOT NULL,
+  source_role       TEXT NOT NULL DEFAULT 'primary',  -- primary | premium (§3.9)
   position          INTEGER NOT NULL,     -- immutable ingest order
   scheduled_at      TIMESTAMP NOT NULL,   -- recomputable only while future
   locked            INTEGER NOT NULL DEFAULT 0,
@@ -203,7 +265,7 @@ CREATE TABLE episodes (
   image_url         TEXT,
   first_seen_at     TIMESTAMP NOT NULL,
   missing_since     TIMESTAMP,
-  UNIQUE (subscription_id, guid),
+  UNIQUE (subscription_id, source_role, guid),  -- the two feeds reuse GUIDs
   UNIQUE (subscription_id, position)
 );
 
@@ -230,8 +292,8 @@ source. Refreshed on each poll.
 | Route | Purpose |
 | --- | --- |
 | `GET /admin` | Server-rendered dashboard: subscriptions, next release, progress ("ep 12 of 240, caught up in 2029"). |
-| `POST /admin/subscriptions` | Add a feed. Fetches, parses, ingests, schedules. |
-| `PATCH /admin/subscriptions/{id}` | Change cadence / start / seed count. Reschedules unlocked episodes only. |
+| `POST /admin/subscriptions` | Add a feed, optionally with `premium_source_url` alongside it. Fetches, parses, ingests, schedules. |
+| `PATCH /admin/subscriptions/{id}` | Change cadence / start / seed count, or meld (`premium_source_url`) / unmeld (`remove_premium`) a premium feed. Reschedules unlocked episodes only. |
 | `DELETE /admin/subscriptions/{id}` | Remove. |
 | `POST /admin/subscriptions/{id}/refresh` | Force a poll. |
 | `POST /admin/subscriptions/{id}/pause` `/resume` | Holiday mode; resume adds elapsed time to `shift_seconds`. |
@@ -240,7 +302,8 @@ source. Refreshed on each poll.
 `html/template` server-rendered, no JS build step, no SPA. For a single user this
 is a few hundred lines. A small CLI (`podcastdelay add <url> --every 7d
 --start tomorrow --seed 2`) is worth having too since it's the fastest path to
-adding a show.
+adding a show, with `--premium <url>` to add both of a show's feeds at once and
+`podcastdelay meld <id-or-token> <url>` to add one to a show already running.
 
 ---
 
@@ -282,15 +345,20 @@ A single goroutine, ticking every 30 minutes, picking any subscription whose
 `last_fetched_at` is older than its poll interval (default 6h; back off to 24h
 after repeated failures). Per subscription:
 
-1. Conditional GET. On 304 → update `last_fetched_at`, done.
+1. Conditional GET of each of the show's feeds. On 304 everywhere → update
+   `last_fetched_at`, done.
 2. Parse. On parse failure → record `last_fetch_status`, back off, **change
    nothing**. A broken upstream fetch must never corrupt an existing schedule.
-3. Refresh `channel_json`.
-4. Upsert episodes: new GUIDs appended at the tail; existing rows get metadata
-   updated (titles and descriptions do get corrected upstream) but **never a new
-   `position`**; absent GUIDs get `missing_since` set.
+   A broken *premium* feed is annotated onto the status instead, and the free
+   feed is ingested as usual (§3.9).
+3. Refresh `channel_json` — from the free feed, which is the show's identity.
+4. Upsert episodes, each feed against its own episodes: new GUIDs appended at
+   the tail; existing rows get metadata updated (titles and descriptions do get
+   corrected upstream) but **never a new `position`**; GUIDs absent from that
+   feed get `missing_since` set.
 5. Lock any episode whose `scheduled_at` has passed.
-6. Recompute `scheduled_at` for unlocked, non-excluded episodes.
+6. Recompute `scheduled_at` for unlocked, non-excluded episodes: the free feed
+   on its cadence, the premium feed anchored to it.
 
 Everything in one transaction per subscription.
 
@@ -385,25 +453,19 @@ services:
     environment:
       PODCASTDELAY_BASE_URL: https://podcasts.example.com
       PODCASTDELAY_ADMIN_USER: sam
-      PODCASTDELAY_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      PODCASTDELAY_ADMIN_PASSWORD: ${PODCASTDELAY_ADMIN_PASSWORD:?set PODCASTDELAY_ADMIN_PASSWORD in .env}
       PODCASTDELAY_DEFAULT_TIMEZONE: Europe/London
-    secrets:
-      - admin_password
     healthcheck:
       test: ["CMD", "/podcastdelay", "healthcheck"]
       interval: 60s
 
 volumes:
   podcastdelay-data:
-
-secrets:
-  admin_password:
-    file: ./admin_password.txt
 ```
 
-Supporting a `_FILE` suffix on the password (read the secret from a file rather
-than the environment) is a small convention that self-hosters expect and costs
-about ten lines. The healthcheck invokes the binary itself rather than curl,
+The password comes from `.env` via the environment. The app also supports a
+`_FILE` suffix (read the secret from a file, e.g. a Docker secret) for anyone
+who prefers that. The healthcheck invokes the binary itself rather than curl,
 since a distroless image has no shell or HTTP client.
 
 ### 9.4 Reachability is the real constraint, not compute
@@ -492,6 +554,11 @@ Effectively free.
 | Excluded episode | Leaves a gap in the schedule rather than compacting it, so already-released dates never move. Simpler and safer; a "compact unreleased" option can come later. |
 | Very long feeds (1000+ items) | `max_feed_items` caps the rendered window. Not urgent — the feed grows one item a week — but cheap insurance against apps that choke. |
 | Source redirects (301 to a new host) | Follow, and persist the new URL on a permanent redirect. Feed migrations are routine. |
+| Same GUID in a show's free and premium feeds | Two episodes, not one: the GUID constraint and the rendered GUID are both scoped by `source_role` (§3.9). Common, since premium feeds are often ad-free re-cuts. |
+| Premium feed dies, free feed fine | Recorded as a `(premium error: ...)` annotation on an otherwise-normal status. The show keeps ingesting and the subscription stays on its usual poll interval. |
+| Premium episode older than every free episode | Releases with the first free episode rather than before the feed starts. |
+| Premium episode with no `pubDate` | Rides out behind the premium episode in front of it, the same guard the free feed's original-cadence mode uses. |
+| Premium feed melded into a show mid-flight | Ingested at the tail of the position sequence and scheduled by anchoring, so no already-released free episode moves. Unmelding deletes those episodes again. |
 | Source dies entirely | Keep serving from the DB. Already-ingested episodes keep releasing; only *new* ones stop. A nice property of ingesting rather than proxying. |
 
 ---
